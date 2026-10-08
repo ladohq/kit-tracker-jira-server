@@ -42,7 +42,9 @@ Clens (Jira project CRM3), but the kit is for any project.
   wrong. Only the project key is required; the other sections (issue type names, the
   mapping of process status words to the board's statuses, labels, custom field ids such
   as Epic Link) are optional, and an action that needs a missing setting names it. The
-  format is minimal in v0.1.0 and grows with real projects. *Source:* brief, settled 6;
+  format is minimal in v0.1.0 and grows with real projects. Issue type and status names
+  are written as Jira shows them: on a localized Jira (e.g. Russian UI) they come
+  translated, and the README says so. *Source:* brief, settled 6;
   design round Q3 (strict subset), Q2 (CRM3's facts deferred to the trial).
 - **R7** The script follows Jira Server 8.x: REST API v2 only (`/rest/api/2/...`, no v3,
   no ADF); users by `name`; search by `/rest/api/2/search`; create metadata by
@@ -50,7 +52,9 @@ Clens (Jira project CRM3), but the kit is for any project.
   custom field (an epic needs Epic Name; `parent` is for sub-tasks only); remote links by
   `/rest/api/2/issue/{key}/remotelink`; TLS verified through the system store or
   `SSL_CERT_FILE`, never disabled. SKILL.md teaches Jira wiki markup (`h2.`, `*bold*`,
-  `{code}`, `[text|url]`, lists, `[~username]`) briefly; the script converts nothing.
+  `{code}`, `[text|url]`, lists, `[~username]`) briefly, its coverage checked against the
+  structure of netresearch's `jira-syntax` skill (headings, code, tables, mentions,
+  panels; no text copied, the skill is CC-BY-SA); the script converts nothing.
   *Source:* brief, section "Jira Server / Data Center 8.13".
 - **R8** Each failure is one plain line saying what happened and what to do, with an exit
   code per kind, and is never guessed over or retried: task not found (404), no access
@@ -86,6 +90,15 @@ No archetype: the kit has no roles and no flows, so none of the team shapes appl
 a skill pack, the shape the LADO plan for trackers (`docs/design/trackers.md` in the LADO
 repository, "For kit authors") sets for every tracker kit: a kit without agents whose skill
 `tracker` describes one tracker, with the project's specifics in `.lado/tracker.yaml`.
+
+Alternatives researched before the second design approval (session artifact
+`research-jira-8-13`), none taken: MCP servers (sooperset/mcp-atlassian needs 8.14+ and a
+personal access token, which 8.13 lacks; those with password auth are archived or have no
+community; and a kit without roles cannot give an MCP server to another kit's roles),
+netresearch/jira-skill (about 10k lines on third-party packages, built for tokens, keeps
+credentials in a file), and wrapping ankitpokhrel/jira-cli (each user installs a binary
+and runs `jira init`; the mark and the error rules would not be ours). The human chose the
+own standard-library script; the research only added the two notes in R6 and R7.
 
 Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 
