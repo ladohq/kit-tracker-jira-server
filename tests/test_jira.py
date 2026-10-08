@@ -1,0 +1,497 @@
+"""Tests of skills/tracker/jira.py against a fake Jira on localhost.
+
+Run from the repository root: python3 -m unittest discover -s tests
+Standard library only; the TLS test needs the `openssl` command and is skipped without it.
+"""
+
+import base64
+import contextlib
+import io
+import json
+import os
+import shutil
+import ssl
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.dont_write_bytecode = True  # keep the skill folder free of __pycache__
+sys.path.insert(0, os.path.join(HERE, "..", "skills", "tracker"))
+import jira  # noqa: E402
+
+PASSWORD = "s3cret-Passw0rd"
+CONFIG = """\
+# settings of the test project
+project: TEST
+issue_types:
+  bug: Bug          # a word of the process -> the board's name
+  epic: Epic
+statuses:
+  review: Code Review
+  done: Done
+labels: [lado, "agent made"]
+fields:
+  epic_link: customfield_10100
+  epic_name: 'customfield_10101'
+"""
+
+
+class FakeJira:
+    """Answers each (method, path) from `routes`, records every request."""
+
+    def __init__(self, tls_context=None):
+        self.routes = {}
+        self.requests = []
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def _answer(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length else b""
+                url = urllib.parse.urlsplit(self.path)
+                fake.requests.append({
+                    "method": self.command, "path": url.path,
+                    "query": dict(urllib.parse.parse_qsl(url.query)),
+                    "headers": dict(self.headers),
+                    "body": json.loads(body) if body else None})
+                route = fake.routes.get((self.command, url.path))
+                if route is None:
+                    status, headers, payload = 404, {}, {"errorMessages": ["no route"]}
+                else:
+                    status, headers, payload = route
+                data = json.dumps(payload).encode() if payload is not None else b""
+                self.send_response(status)
+                for name, value in headers.items():
+                    self.send_header(name, value)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            do_GET = do_POST = do_PUT = do_DELETE = _answer
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        if tls_context:
+            self.server.socket = tls_context.wrap_socket(self.server.socket,
+                                                         server_side=True)
+        scheme = "https" if tls_context else "http"
+        self.url = "%s://127.0.0.1:%d" % (scheme, self.server.server_address[1])
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       args=(0.05,), daemon=True)
+        self.thread.start()
+
+    def route(self, method, path, payload=None, status=200, headers=None):
+        self.routes[(method, "/rest/api/2/" + path)] = (status, headers or {}, payload)
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class JiraTestCase(unittest.TestCase):
+    def setUp(self):
+        self.jira = FakeJira()
+        self.addCleanup(self.jira.close)
+        self.repo = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.repo)
+        os.mkdir(os.path.join(self.repo, ".git"))
+        os.mkdir(os.path.join(self.repo, ".lado"))
+        self.write_config(CONFIG)
+        old = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, old)
+        env = {"JIRA_URL": self.jira.url + "/", "JIRA_USER": "agent.user",
+               "JIRA_PASSWORD": PASSWORD, "LADO_AGENT": "developer"}
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def write_config(self, text):
+        with open(os.path.join(self.repo, ".lado", "tracker.yaml"), "w") as handle:
+            handle.write(text)
+
+    def run_jira(self, *argv, stdin=""):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                mock.patch("sys.stdin", io.StringIO(stdin)):
+            try:
+                code = jira.main(list(argv))
+            except SystemExit as exit:
+                code = exit.code
+        self.assertNotIn(PASSWORD, out.getvalue() + err.getvalue())
+        self.assertNotIn("agent.user", out.getvalue() + err.getvalue())
+        return code, out.getvalue(), err.getvalue()
+
+    def sent(self, method, path):
+        return [r for r in self.jira.requests
+                if r["method"] == method and r["path"] == "/rest/api/2/" + path]
+
+
+class ConfigTest(unittest.TestCase):
+    def parse(self, text):
+        return jira.parse_config(text, "tracker.yaml")
+
+    def test_full_example(self):
+        config = self.parse(CONFIG)
+        self.assertEqual(config["project"], "TEST")
+        self.assertEqual(config["issue_types"], {"bug": "Bug", "epic": "Epic"})
+        self.assertEqual(config["labels"], ["lado", "agent made"])
+        self.assertEqual(config["fields"]["epic_name"], "customfield_10101")
+
+    def test_only_project_is_required(self):
+        config = self.parse("project: ABC\n")
+        self.assertEqual(config["statuses"], {})
+        self.assertEqual(config["labels"], [])
+        with self.assertRaisesRegex(ValueError, "'project'.*required"):
+            self.parse("labels: [a]\n")
+
+    def test_hash_inside_quotes_is_kept(self):
+        self.assertEqual(self.parse("project: 'A#B' # comment\n")["project"], "A#B")
+        config = self.parse("project: A\nstatuses:\n  wontfix: Won't Fix  # note\n")
+        self.assertEqual(config["statuses"]["wontfix"], "Won't Fix")
+
+    def test_errors_name_the_line(self):
+        cases = {
+            "project: A\n\tlabels: [a]\n": "line 2: indent with spaces",
+            "project: A\nlabels:\n  - a\n": "line 3: block lists",
+            "project: A\nfields:\n  a:\n    b: c\n": "line 3: .*one level",
+            "project: A\nfields:\n  a: b\n    c: d\n": "line 4: only one level",
+            "project A\n": "line 1: expected 'key: value'",
+            "project: A\nproject: B\n": "line 2: 'project' is given twice",
+            "project: A\nlabels: [a, b\n": "line 2: .*end with ']'",
+            "project: 'A\n": "line 1: .*same quote",
+            "project: A\n  x: y\n": "line 2: unexpected indent",
+            "project: {a: b}\n": "line 1: .*flow maps",
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError, "tracker.yaml " + message):
+                    self.parse(text)
+
+    def test_unknown_key_and_wrong_shapes(self):
+        with self.assertRaisesRegex(ValueError, "unknown key 'statuss'"):
+            self.parse("project: A\nstatuss:\n  done: Done\n")
+        with self.assertRaisesRegex(ValueError, "'labels' must be a list"):
+            self.parse("project: A\nlabels: lado\n")
+        with self.assertRaisesRegex(ValueError, "'statuses' must be a map"):
+            self.parse("project: A\nstatuses: Done\n")
+
+    def test_found_upward_but_not_above_the_repository(self):
+        top = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, top)
+        repo = os.path.join(top, "repo")
+        deep = os.path.join(repo, "src", "deep")
+        os.makedirs(deep)
+        os.makedirs(os.path.join(top, ".lado"))
+        open(os.path.join(top, ".lado", "tracker.yaml"), "w").close()
+        open(os.path.join(repo, ".git"), "w").close()  # a worktree's .git is a file
+        self.assertIsNone(jira.find_config(deep))
+        os.makedirs(os.path.join(repo, ".lado"))
+        open(os.path.join(repo, ".lado", "tracker.yaml"), "w").close()
+        self.assertEqual(jira.find_config(deep),
+                         os.path.join(os.path.abspath(repo), ".lado", "tracker.yaml"))
+
+
+class CommandsTest(JiraTestCase):
+    def test_get(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
+            "summary": "Fix login", "status": {"name": "Open"},
+            "issuetype": {"name": "Bug"}, "assignee": {"name": "ann", "displayName": "Ann"},
+            "description": "h2. Steps\n# open", "customfield_10100": "TEST-9",
+            "comment": {"comments": [{"author": {"displayName": "Bob"}, "body": "c%d" % i,
+                                      "created": "2026-10-0%d" % i} for i in range(1, 8)]}}})
+        code, out, err = self.run_jira("get", "TEST-1", "--comments", "2")
+        self.assertEqual(code, 0, err)
+        self.assertIn("TEST-1  Fix login", out)
+        self.assertIn("Status: Open", out)
+        self.assertIn("Epic: TEST-9", out)
+        self.assertIn("h2. Steps", out)
+        self.assertIn("Comments: 7, the last 2 shown", out)
+        self.assertIn("c7", out)
+        self.assertNotIn("c5", out)
+        request = self.jira.requests[0]
+        expected = "Basic " + base64.b64encode(
+            ("agent.user:" + PASSWORD).encode()).decode()
+        self.assertEqual(request["headers"]["Authorization"], expected)
+        self.assertIn("customfield_10100", request["query"]["fields"])
+
+    def test_search_pages_and_project_placeholder(self):
+        self.jira.route("GET", "search", {"startAt": 20, "total": 45, "issues": [
+            {"key": "TEST-%d" % i, "fields": {"summary": "s", "status": {"name": "Open"},
+                                             "issuetype": {"name": "Task"}}}
+            for i in range(20)]})
+        code, out, err = self.run_jira("search", "project = {project} AND status = Open",
+                                       "--start", "20")
+        self.assertEqual(code, 0, err)
+        query = self.jira.requests[0]["query"]
+        self.assertEqual(query["jql"], "project = TEST AND status = Open")
+        self.assertEqual((query["startAt"], query["maxResults"]), ("20", "20"))
+        self.assertIn("Tasks 21-40 of 45", out)
+        self.assertIn("More: run again with --start 40", out)
+
+    def route_createmeta(self, required=()):
+        self.jira.route("GET", "issue/createmeta/TEST/issuetypes", {"values": [
+            {"id": "1", "name": "Bug"}, {"id": "10000", "name": "Epic"}]})
+        fields = [{"fieldId": "summary", "name": "Summary", "required": True},
+                  {"fieldId": "reporter", "name": "Reporter", "required": True,
+                   "hasDefaultValue": True}]
+        fields += [{"fieldId": f, "name": f.title(), "required": True} for f in required]
+        self.jira.route("GET", "issue/createmeta/TEST/issuetypes/1", {"values": fields})
+        self.jira.route("POST", "issue", {"key": "TEST-5"}, status=201)
+
+    def test_create_with_mark_labels_and_epic(self):
+        self.route_createmeta()
+        code, out, err = self.run_jira("create", "--type", "bug", "--summary", "Crash",
+                                       "--description", "-", "--epic", "TEST-9",
+                                       stdin="h2. Steps\n# run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("TEST-5 created", out)
+        fields = self.sent("POST", "issue")[0]["body"]["fields"]
+        self.assertEqual(fields["issuetype"], {"id": "1"})
+        self.assertEqual(fields["project"], {"key": "TEST"})
+        self.assertEqual(fields["description"], "[LADO: developer]\n\nh2. Steps\n# run")
+        self.assertEqual(fields["labels"], ["lado", "agent made"])
+        self.assertEqual(fields["customfield_10100"], "TEST-9")
+
+    def test_create_names_required_fields(self):
+        self.route_createmeta(required=["components"])
+        code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "Crash")
+        self.assertEqual(code, jira.FIELDS_REQUIRED)
+        self.assertIn("Components (components)", err)
+        self.assertNotIn("Reporter", err)
+        self.assertEqual(self.sent("POST", "issue"), [])
+        code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "Crash",
+                                     "--field", 'components=[{"name": "UI"}]')
+        self.assertEqual(code, 0, err)
+        fields = self.sent("POST", "issue")[0]["body"]["fields"]
+        self.assertEqual(fields["components"], [{"name": "UI"}])
+        self.assertEqual(fields["description"], "[LADO: developer]")
+
+    def test_create_epic_needs_its_setting(self):
+        self.write_config("project: TEST\n")
+        self.route_createmeta()
+        code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "x",
+                                     "--epic", "TEST-9")
+        self.assertEqual(code, jira.CONFIG)
+        self.assertIn("'fields.epic_link'", err)
+
+    def test_create_unknown_type_lists_types(self):
+        self.route_createmeta()
+        code, _, err = self.run_jira("create", "--type", "Story", "--summary", "x")
+        self.assertEqual(code, jira.REFUSED)
+        self.assertIn("its types: Bug, Epic", err)
+
+    def test_create_needs_the_config(self):
+        os.remove(os.path.join(self.repo, ".lado", "tracker.yaml"))
+        code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "x")
+        self.assertEqual(code, jira.CONFIG)
+        self.assertIn(".lado/tracker.yaml not found", err)
+        self.assertEqual(self.jira.requests, [])
+
+    def route_transitions(self, required=False):
+        fields = {"resolution": {"name": "Resolution", "required": True}} if required else {}
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1",
+                                                "fields": {"status": {"name": "In Progress"}}})
+        self.jira.route("GET", "issue/TEST-1/transitions", {"transitions": [
+            {"id": "21", "name": "Send to review", "to": {"name": "Code Review"}},
+            {"id": "31", "name": "Close", "to": {"name": "Done"}, "fields": fields}]})
+        self.jira.route("POST", "issue/TEST-1/transitions", None, status=204)
+
+    def test_transition_lists_without_target(self):
+        self.route_transitions()
+        code, out, err = self.run_jira("transition", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("21: Send to review -> Code Review", out)
+        self.assertEqual(self.sent("POST", "issue/TEST-1/transitions"), [])
+
+    def test_transition_by_process_word_with_comment(self):
+        self.route_transitions()
+        code, out, err = self.run_jira("transition", "TEST-1", "review",
+                                       "--comment", "Ready.")
+        self.assertEqual(code, 0, err)
+        self.assertIn("TEST-1: In Progress -> Code Review", out)
+        body = self.sent("POST", "issue/TEST-1/transitions")[0]["body"]
+        self.assertEqual(body["transition"], {"id": "21"})
+        self.assertEqual(body["update"]["comment"][0]["add"]["body"],
+                         "[LADO: developer]\n\nReady.")
+
+    def test_transition_names_required_fields(self):
+        self.route_transitions(required=True)
+        code, _, err = self.run_jira("transition", "TEST-1", "done")
+        self.assertEqual(code, jira.FIELDS_REQUIRED)
+        self.assertIn("Resolution (resolution)", err)
+        self.assertEqual(self.sent("POST", "issue/TEST-1/transitions"), [])
+        code, _, err = self.run_jira("transition", "TEST-1", "Close",
+                                     "--resolution", "Fixed")
+        self.assertEqual(code, 0, err)
+        body = self.sent("POST", "issue/TEST-1/transitions")[0]["body"]
+        self.assertEqual(body["fields"], {"resolution": {"name": "Fixed"}})
+
+    def test_transition_not_available_lists_the_others(self):
+        self.route_transitions()
+        code, _, err = self.run_jira("transition", "TEST-1", "Reopen")
+        self.assertEqual(code, jira.REFUSED)
+        self.assertIn("not available from In Progress", err)
+        self.assertIn("31: Close -> Done", err)
+
+    def test_transition_already_there(self):
+        self.route_transitions()
+        code, out, _ = self.run_jira("transition", "TEST-1", "In Progress")
+        self.assertEqual(code, 0)
+        self.assertIn("already in In Progress", out)
+
+    def test_comment_marked_only_for_an_agent(self):
+        self.jira.route("POST", "issue/TEST-1/comment", {"id": "100"}, status=201)
+        code, out, err = self.run_jira("comment", "TEST-1", "*Done*: see [PR|http://x]")
+        self.assertEqual(code, 0, err)
+        self.assertIn("comment 100 added", out)
+        self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[0]["body"]["body"],
+                         "[LADO: developer]\n\n*Done*: see [PR|http://x]")
+        with mock.patch.dict(os.environ, {"LADO_AGENT": ""}):
+            self.run_jira("comment", "TEST-1", "by hand")
+        self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[1]["body"]["body"],
+                         "by hand")
+
+    def test_comment_works_without_config(self):
+        os.remove(os.path.join(self.repo, ".lado", "tracker.yaml"))
+        self.jira.route("POST", "issue/TEST-1/comment", {"id": "1"}, status=201)
+        code, _, err = self.run_jira("comment", "TEST-1", "x")
+        self.assertEqual(code, 0, err)
+
+    def test_empty_text_is_refused(self):
+        code, _, err = self.run_jira("comment", "TEST-1", "-", stdin="  \n")
+        self.assertEqual(code, jira.USAGE)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_link(self):
+        self.jira.route("POST", "issue/TEST-1/remotelink", {"id": 7}, status=201)
+        url = "https://git.example/repo/commit/abc"
+        code, out, err = self.run_jira("link", "TEST-1", url, "--title", "commit abc")
+        self.assertEqual(code, 0, err)
+        body = self.sent("POST", "issue/TEST-1/remotelink")[0]["body"]
+        self.assertEqual(body, {"globalId": url,
+                                "object": {"url": url, "title": "commit abc"}})
+
+
+class ErrorsTest(JiraTestCase):
+    def assertFails(self, code, text, *argv):
+        got, out, err = self.run_jira(*(argv or ("get", "TEST-1")))
+        self.assertEqual(got, code, err)
+        self.assertIn(text, err)
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        return err
+
+    def test_not_found(self):
+        self.assertFails(jira.NOT_FOUND, "task TEST-1 not found")
+
+    def test_no_access(self):
+        self.jira.route("POST", "issue/TEST-1/comment",
+                        {"errorMessages": ["You do not have the permission"]}, status=403)
+        self.assertFails(jira.NO_ACCESS, "no access (403)", "comment", "TEST-1", "x")
+
+    def test_unset_credentials_are_named(self):
+        with mock.patch.dict(os.environ, {"JIRA_PASSWORD": "", "JIRA_URL": ""}):
+            err = self.assertFails(jira.CREDENTIALS_UNSET, "JIRA_URL, JIRA_PASSWORD not set")
+        self.assertEqual(self.jira.requests, [])
+
+    def test_refused_credentials_are_not_retried(self):
+        self.jira.route("GET", "issue/TEST-1", None, status=401,
+                        headers={"X-Seraph-LoginReason": "AUTHENTICATED_FAILED"})
+        self.assertFails(jira.CREDENTIALS_REFUSED, "refused the credentials (401)")
+        self.assertEqual(len(self.jira.requests), 1)
+
+    def test_captcha(self):
+        self.jira.route("GET", "issue/TEST-1", None, status=403, headers={
+            "X-Authentication-Denied-Reason": "CAPTCHA_CHALLENGE; login-url=/login.jsp"})
+        self.assertFails(jira.CREDENTIALS_REFUSED, "log in to Jira in a browser")
+        self.assertEqual(len(self.jira.requests), 1)
+
+    def test_bad_jql(self):
+        self.jira.route("GET", "search", {"errorMessages": ["The field 'x' does not exist"]},
+                        status=400)
+        self.assertFails(jira.REFUSED, "does not exist", "search", "x = 1")
+
+    def test_field_errors_on_create(self):
+        self.jira.route("GET", "issue/createmeta/TEST/issuetypes",
+                        {"values": [{"id": "1", "name": "Bug"}]})
+        self.jira.route("GET", "issue/createmeta/TEST/issuetypes/1", {"values": []})
+        self.jira.route("POST", "issue", {"errors": {"priority": "Priority is required."}},
+                        status=400)
+        self.assertFails(jira.FIELDS_REQUIRED, "priority (Priority is required.)",
+                         "create", "--type", "Bug", "--summary", "x")
+
+    def test_server_error(self):
+        self.jira.route("GET", "issue/TEST-1", None, status=500)
+        self.assertFails(jira.SERVER_ERROR, "Jira failed (500)")
+
+    def test_redirect_is_not_followed(self):
+        self.jira.route("GET", "issue/TEST-1", None, status=302,
+                        headers={"Location": "http://127.0.0.1:1/sso"})
+        self.assertFails(jira.REFUSED, "redirect (302), not followed")
+        self.assertEqual(len(self.jira.requests), 1)
+
+    def test_unreachable(self):
+        self.jira.close()
+        self.assertFails(jira.UNREACHABLE, "VPN")
+
+    def test_timeout(self):
+        event = threading.Event()
+        self.addCleanup(event.set)
+        handler = self.jira.server.RequestHandlerClass
+        handler.do_GET = lambda request: event.wait(5)
+        with mock.patch.object(jira, "TIMEOUT", 0.3):
+            self.assertFails(jira.UNREACHABLE, "did not answer")
+
+    def test_invalid_config(self):
+        self.write_config("project: TEST\nlabels:\n  - lado\n")
+        err = self.assertFails(jira.CONFIG, "line 3: block lists",
+                               "create", "--type", "Bug", "--summary", "x")
+        self.assertIn("tracker.yaml", err)
+        self.assertEqual(self.jira.requests, [])
+
+
+@unittest.skipUnless(shutil.which("openssl"), "needs the openssl command")
+class TlsTest(JiraTestCase):
+    def setUp(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        self.cert = os.path.join(folder, "cert.pem")
+        key = os.path.join(folder, "key.pem")
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                        "-keyout", key, "-out", self.cert, "-days", "2",
+                        "-subj", "/CN=127.0.0.1",
+                        "-addext", "subjectAltName=IP:127.0.0.1"],
+                       check=True, capture_output=True)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(self.cert, key)
+        super().setUp()
+        self.jira.close()
+        self.jira = FakeJira(tls_context=context)
+        self.addCleanup(self.jira.close)
+        os.environ["JIRA_URL"] = self.jira.url
+
+    def test_untrusted_certificate(self):
+        with mock.patch.dict(os.environ, {"SSL_CERT_FILE": ""}):
+            code, _, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, jira.TLS, err)
+        self.assertIn("SSL_CERT_FILE", err)
+
+    def test_trusted_through_ssl_cert_file(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {}})
+        with mock.patch.dict(os.environ, {"SSL_CERT_FILE": self.cert}):
+            code, out, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("TEST-1", out)
+
+
+if __name__ == "__main__":
+    unittest.main()

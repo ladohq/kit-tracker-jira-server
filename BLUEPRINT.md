@@ -109,16 +109,19 @@ Reverse check:
 
 ## 4. Complexity budget
 
-Planned, counted by hand; replaced by the script's output after the kit is built.
+Output of the kit-budget script on the built kit (0.1.0):
 
-| Measure | Value | Zone | Reason, when not green |
-|---|---|---|---|
-| Worker roles (not supervisor) | 0 | green | |
-| Work steps (no flows) | 0 | green | |
-| Gates (no flows) | 0 | green | |
-| Words in the longest role prompt | 0 | green | |
-| Own skills | 1 | green | |
-| MCP servers | 0 | green | |
+| Measure | Where | Value | Green / yellow up to | Zone |
+|---|---|---|---|---|
+| Worker roles (not supervisor) | kit | 0 | 3 / 5 | green |
+| Work steps in a flow | no flows | 0 | 5 / 8 | green |
+| Gates in a flow | no flows | 0 | 2 / 3 | green |
+| Words in a role prompt | no roles | 0 | 800 / 1500 | green |
+| Words in the lead's prompt | no lead role | 0 | 1000 / 1500 | green |
+| Own skills | kit | 1 | 5 / 10 | green |
+| MCP servers | kit | 0 | 2 / 4 | green |
+
+Similar paragraphs (55% or more): none. Overall: green.
 
 ## 5. Change log
 
