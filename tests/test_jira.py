@@ -156,6 +156,10 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config["labels"], ["lado", "agent made"])
         self.assertEqual(config["fields"]["epic_name"], "customfield_10101")
 
+    def test_localized_names(self):
+        config = self.parse("project: A\nstatuses:\n  review: Ревью кода  # translated\n")
+        self.assertEqual(config["statuses"]["review"], "Ревью кода")
+
     def test_only_project_is_required(self):
         config = self.parse("project: ABC\n")
         self.assertEqual(config["statuses"], {})

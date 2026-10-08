@@ -22,6 +22,10 @@ for them, print them or put them in a file. Whatever you write in Jira appears i
 user's name, so the script starts every comment and every new task's description with
 `[LADO: <your agent name>]`; leave that mark to it.
 
+Reading is always fine. Create, transition, comment or link only when your role, your
+step or the human asks for it, and only on the tasks named; your process kit's roles and
+steps may allow more.
+
 ## Actions
 
 | To | Run |
@@ -60,12 +64,17 @@ text as it is:
 
 | Want | Write |
 |---|---|
-| heading | `h2. Steps` at the start of a line |
-| bold, italic, code | `*bold*`, `_italic_`, `{{code}}` |
-| code block | `{code:python}` ... `{code}` on lines of their own |
-| link | `[text\|https://...]` |
+| heading | `h1.` to `h6.` at the start of a line: `h2. Steps` |
+| bold, italic, strike, code | `*bold*`, `_italic_`, `-strike-`, `{{code}}` |
+| code block | `{code:python}` ... `{code}` on lines of their own; `{noformat}` for logs |
+| quote | `bq. one line`, or `{quote}` ... `{quote}` |
+| panel | `{panel:title=Result}` ... `{panel}` |
+| table | `\|\|Head\|\|Head\|\|` once, then `\|cell\|cell\|` per row |
+| link | `[text\|https://...]`, a task by its bare key `KEY-1` |
 | bullet, numbered list | `* item`, `# item` (`**` nests) |
 | mention a user | `[~login]` |
+
+A blank line separates paragraphs; inside `{code}` and `{noformat}` nothing is markup.
 
 ## Project settings: `.lado/tracker.yaml`
 

@@ -52,6 +52,11 @@ statuses:                     # a word of the process -> the board's status
   review: Code Review
 ```
 
+Write issue type and status names as Jira shows them: on a localized Jira (a Russian UI,
+for example) they come translated, so `review: Code Review` may need to be
+`review: Ревью`. The skill's `transition` action without a
+target lists a task's next statuses as Jira names them.
+
 The other sections (issue types, labels, custom field ids such as Epic Link, which
 `$JIRA_URL/rest/api/2/field` lists) and the format, a strict subset of YAML, are in
 [`skills/tracker/SKILL.md`](skills/tracker/SKILL.md).
