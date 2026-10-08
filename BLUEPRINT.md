@@ -64,15 +64,19 @@ Clens (Jira project CRM3), but the kit is for any project.
   comment and every created task's description starts with `[LADO: <agent>]`, the agent's
   name taken from `LADO_AGENT` (which LADO sets for each agent); without `LADO_AGENT` (the
   user runs the script by hand) there is no mark. *Source:* design round Q4.
+- **R11** One default write scope in SKILL.md: reading is always fine; create, transition,
+  comment or link only when the agent's role, its step or the human asks for it, and only
+  on the tasks named. A process kit's roles and steps may allow more. *Source:* critic's
+  finding F12.1 and Question 1; the human agreed at the second design visit.
 - **R10** Release: `lado kits check . --tag v0.1.0`; then a trial on one test task in the
   real Jira (project CRM3), only with the human's yes; v1.0.0 and the official marketplace
   after the trial and its fixes, in an `improve` run. *Source:* brief, settled 8; design
   round Q7.
 
 Open, decided at the trial (not in v0.1.0):
-- Limits for agents (deletes, closing tasks, others' tasks): none in the script or the
-  skill for now; the human decides at the trial (design round Q5: "not sure yet, decide as
-  we work"). A process kit may set its own (R2's settled 7).
+- Further limits for agents (deletes, closing tasks, others' tasks): none beyond R11 for
+  now; the human decides at the trial (design round Q5: "not sure yet, decide as we
+  work"). A process kit may set its own (brief, settled 7).
 - CRM3's facts (issue types, statuses, Epic Link id, required fields, Jira Software) and
   the test task: gathered by the human before the trial (design round Q2).
 
@@ -90,7 +94,7 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 | Element | Kind | Covers | Why it exists / why nothing simpler |
 |---|---|---|---|
 | `kit.yaml` | manifest | R2 | name, version, description; no `supervisor:` (the kit never leads a session) and no `dependencies.skills` |
-| `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R6, R7, R8, R9 | the one skill the convention names; how to run each action, Jira wiki markup, where the settings are and their format with an example, what each exit code means and what to do; no project-specific values |
+| `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R6, R7, R8, R9, R11 | the one skill the convention names; how to run each action, Jira wiki markup, where the settings are and their format with an example, what each exit code means and what to do; no project-specific values |
 | `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `transition`, `comment`, `link`; reads env credentials and `.lado/tracker.yaml`; adds the mark |
 | `tests/test_jira.py` | tests (outside the skill) | R7, R8, R9, R10 | the trial touches the real Jira only with the human's yes, so the script's requests, the YAML subset, the mark and every error path are checked before it against a local fake Jira (standard library `unittest` and `http.server`); outside `skills/` so it does not ship into agents' skill folders |
 | `README.md` | doc | R2, R5, R6 | how to add the kit to a session, set the credentials and write a project's `.lado/tracker.yaml` |
@@ -105,6 +109,7 @@ Reverse check:
 - R7: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R8: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R9: `tracker` skill, `jira.py`, `tests/test_jira.py`.
+- R11: `tracker` skill.
 - R10: `tests/test_jira.py`; the release itself is the `create` run's step, not a kit file.
 
 ## 4. Complexity budget
