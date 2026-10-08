@@ -11,8 +11,9 @@ project.
 ## 1. Requirements
 
 - **R1** The kit is universal: it works for any project on Jira Server / Data Center 8.4
-  or newer (8.x before 8.4 lacks the create metadata R7 uses), not for one project. Nothing project- or company-specific (Jira address, project key,
-  issue type or status names, custom field ids) is in the skill's text or the script.
+  or newer (8.x before 8.4 lacks the create metadata R7 uses), not for one project.
+  Nothing project- or company-specific (Jira address, project key, issue type or status
+  names, custom field ids) is in the skill's text or the script.
   *Source:* the human, design round (Q6 follow-up: "we are building a universal kit, used
   for different projects, not only one"); brief, settled 6; the version floor from report
   `kit-reports/tracker-jira-server-0.1.1-2026-10-08.md` (37181e0), F5.2.
@@ -43,13 +44,14 @@ project.
   the script, found from the current directory upward to the repository root. The script
   reads a strict YAML subset: `key: value` lines, one level of nested maps, inline
   `[a, b]` lists, `#` comments; anything else stops it with the path, the line and what is
-  wrong (an unknown or misshaped top-level key names its line too, F5.5). Only the project key is required; the other sections (issue type names, the
-  mapping of process status words to the board's statuses, labels, custom field ids such
-  as Epic Link) are optional, and an action that needs a missing setting names it. The
-  format is minimal and grows with real projects. Issue type and status names
-  are written as Jira shows them: on a localized Jira (e.g. Russian UI) they come
-  translated, and the README says so. *Source:* brief, settled 6;
-  design round Q3 (strict subset), Q2 (the first project's facts deferred to the trial).
+  wrong (an unknown or misshaped top-level key names its line too). Only the project key
+  is required; the other sections (issue type names, the mapping of process status words
+  to the board's statuses, labels, custom field ids such as Epic Link) are optional, and
+  an action that needs a missing setting names it. The format is minimal and grows with
+  real projects. Issue type and status names are written as Jira shows them: on a
+  localized Jira (e.g. Russian UI) they come translated, and the README says so.
+  *Source:* brief, settled 6; design round Q3 (strict subset), Q2 (the first project's
+  facts are gathered at its first use); report 37181e0, F5.5.
 - **R7** The script follows Jira Server 8.4+: REST API v2 only (`/rest/api/2/...`, no v3,
   no ADF); users by `name`; search by `/rest/api/2/search`; create metadata by
   `/rest/api/2/issue/createmeta/{project}/issuetypes[/{id}]`; epics through the Epic Link
@@ -123,7 +125,7 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 | `kit.yaml` | manifest | R2 | name, version, description; no `supervisor:` (the kit never leads a session) and no `dependencies.skills` |
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R6, R7, R8, R9, R11 | the one skill the convention names; how to run each action, Jira wiki markup, where the settings are and their format with an example, what each exit code means and what to do; no project-specific values |
 | `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `transition`, `comment`, `link`; reads env credentials and `.lado/tracker.yaml`; adds the mark |
-| `tests/test_jira.py` | tests (outside the skill) | R7, R8, R9, R10 | the trial touches the real Jira only with the human's yes, so the script's requests, the YAML subset, the mark and every error path are checked before it against a local fake Jira (standard library `unittest` and `http.server`); outside `skills/` so it does not ship into agents' skill folders |
+| `tests/test_jira.py` | tests (outside the skill) | R7, R8, R9, R10 | the trials run on a test Jira, so the script's requests, the YAML subset, the mark and every error path are checked before it against a local fake Jira (standard library `unittest` and `http.server`); outside `skills/` so it does not ship into agents' skill folders |
 | `README.md` | doc | R2, R5, R6 | how to add the kit to a session, set the credentials and write a project's `.lado/tracker.yaml` |
 
 Reverse check:
@@ -137,7 +139,8 @@ Reverse check:
 - R8: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R9: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R11: `tracker` skill.
-- R10: `tests/test_jira.py`; the release itself is the `create` run's step, not a kit file.
+- R10: `tests/test_jira.py`; the release, the sandbox trial before it and the rename are
+  the run's release step, not a kit file.
 
 ## 4. Complexity budget
 
