@@ -466,10 +466,13 @@ class ErrorsTest(JiraTestCase):
                          "create", "--type", "Bug", "--summary", "x", "--epic", "TEST-0")
 
     def test_url_must_be_https(self):
-        for url in ("http://jira.example.com", "jira.example.com", "https://",
-                    "https://jira.example.com:abc"):
+        for url in ("http://jira.example.com", "ftp://jira.example.com"):
             with self.subTest(url=url), mock.patch.dict(os.environ, {"JIRA_URL": url}):
-                self.assertFails(jira.SETUP, "https://")
+                self.assertFails(jira.SETUP, "must be Jira's https://")
+        for url in ("jira.example.com", "https://", "https://jira.example.com:abc",
+                    "https://[::1"):
+            with self.subTest(url=url), mock.patch.dict(os.environ, {"JIRA_URL": url}):
+                self.assertFails(jira.SETUP, "not a valid address")
         self.assertEqual(self.jira.requests, [])
 
     def test_answer_that_is_not_jira(self):

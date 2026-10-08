@@ -224,14 +224,16 @@ class Jira:
             raise Failure(SETUP, "%s not set: the user sets it in their login shell's "
                                  "profile, then starts a new session" % ", ".join(missing))
         self.base = os.environ["JIRA_URL"].rstrip("/")
-        url = urllib.parse.urlsplit(self.base)
         try:
+            url = urllib.parse.urlsplit(self.base)
             url.port  # raises ValueError on a malformed port
         except ValueError:
             url = None
+        if not url or not url.hostname:
+            raise Failure(SETUP, "JIRA_URL is not a valid address (host, port): it must be "
+                                 "Jira's https:// base address")
         # The password goes in every request: only over TLS, or to this machine (tests).
-        if not url or not url.hostname or not (url.scheme == "https" or (
-                url.scheme == "http" and url.hostname in LOOPBACK)):
+        if not (url.scheme == "https" or (url.scheme == "http" and url.hostname in LOOPBACK)):
             raise Failure(SETUP, "JIRA_URL must be Jira's https:// base address: the "
                                  "password is sent with every request")
         login = "%s:%s" % (os.environ["JIRA_USER"], os.environ["JIRA_PASSWORD"])
