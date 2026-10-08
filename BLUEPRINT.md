@@ -127,7 +127,7 @@ Reverse check:
 
 ## 4. Complexity budget
 
-Output of the kit-budget script on the built kit (0.1.1 changes; kit.yaml still says 0.1.0 until the release):
+Output of the kit-budget script on the built kit (0.1.1):
 
 | Measure | Where | Value | Green / yellow up to | Zone |
 |---|---|---|---|---|
