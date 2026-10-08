@@ -2,17 +2,18 @@
 
 - Date: 2026-10-08
 - Kit: `.` (the run's worktree of `create/tracker-jira-server`), path given
-- Commit: b245615
+- Commit: 548abd2
 - Evaluated by: kit-builder critic (layers a and b)
-- Mode: full (first evaluation in `create`; no previous report)
-- Passes: three independent sub-agents, each with the rubric, `lado-kit-format` and the
-  kit folder only, starting from kit.yaml + BLUEPRINT.md (pass 1), from `jira.py` (pass 2),
-  and from README.md + SKILL.md read as a worker of a process kit (pass 3). The kit has no
-  dependency skills. 9 one-pass findings: 5 kept as confirmed, 4 dropped. The dropped
-  ones are task text as untrusted input, the key of a created task in the step's note,
-  the repository name `lado-kit-*` (the task sets it), and a Jira behaviour that cannot be
-  confirmed offline: createmeta marking `reporter` as required. That last one is under
-  "Questions for the human" as a trial check.
+- Mode: re-evaluation against this report's previous version (commit eeb9073, kit at
+  b245615), `git diff b245615 -- kit.yaml README.md BLUEPRINT.md agents flows skills`. In
+  `create` all of the kit's text counts as changed, so the three passes covered the whole
+  kit and there is no separate full pass.
+- Passes: three independent sub-agents, each with the rubric, `lado-kit-format`, the kit
+  folder, this report's previous version and the diff. They started from BLUEPRINT.md +
+  SKILL.md (pass 1), from `jira.py` and its diff (pass 2), and from README.md + the raw
+  SKILL.md as a worker reads it (pass 3). All three marked every previous finding and ran
+  the cut-rule check; I checked the cut rules again myself. Of 2 one-pass findings, 2 were
+  kept as confirmed and 0 dropped.
 
 Findings are candidates for the human to weigh, not a pass/fail grade.
 
@@ -23,8 +24,9 @@ Findings are candidates for the human to weigh, not a pass/fail grade.
 | a. `lado kits check` | OK; 0 warnings |
 | a. Budget | green; no yellow or red measure |
 | a. Flows | 0 drawn (the kit has no flows); `--compare` not applicable, see "Flows" |
-| b. Rubric | 12 findings (2 high, 6 medium, 4 low); 6 of 12 criteria without findings |
-| Covers | full evaluation of the whole kit, 5 files (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); tests/test_jira.py read and run (36 tests, OK) |
+| b. Rubric | 5 findings (0 high, 3 medium, 2 low); 9 of 12 criteria without findings. All 12 previous findings RESOLVED |
+| Covers | re-evaluation of the changed text, which in `create` is the whole kit: 5 files (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); tests/test_jira.py run (44 tests, OK) |
+| Stop rule | not met: 0 high, 3 medium (F12.1, F3.1, F5.1). This is advice for the release gate, not a block |
 
 The count covers only what the row "Covers" names: a count of a re-evaluation and one of a
 full evaluation are not comparable.
@@ -59,257 +61,208 @@ Overall: green
 
 ### Flows
 
-The kit has no flows and BLUEPRINT.md has no skeletons (R2, section 2: "Flow skeletons:
-none"), so there is nothing to draw or compare. The flow script fails on a flowless kit.
-That is a fault of the script, not of the kit (see "Found on the way"); the supervisor
-ruled the compare not applicable (#601).
+The kit has no flows and BLUEPRINT.md has no skeletons (R2; section 2: "Flow skeletons:
+none"). The flow script fails on a flowless kit, which is a fault of the script, not of
+the kit (see "Found on the way"). The supervisor ruled the compare not applicable (#601).
 
 ```
-$ flow_diagram.py . --out kit-reports/tracker-jira-server-0.1.0-2026-10-08
-error: kit.yaml: states must be a non-empty mapping   (exit status 2)
 $ flow_diagram.py . --compare BLUEPRINT.md
 error: kit.yaml: states must be a non-empty mapping   (exit status 2)
 ```
 
 ## Fix first
 
-1. Say in SKILL.md whom "tell the user" / "ask" means for a worker: the supervisor via
-   `send_message`. The lead tells the human. (F7.1)
-2. Add one scope line to SKILL.md: read freely; create, transition, comment or link only
-   when your role, your step or the human asks for it. (F12.1)
-3. Refuse a `JIRA_URL` that is not `https://`, and catch the exceptions that now escape
-   as a traceback with exit 1. (F12.2, F3.3)
-4. Split exit 8 ("needs fields") from "refused field values", and name a wrong
-   `JIRA_URL` (redirect, non-JSON) as an environment fault, not a request to fix. (F3.1,
-   F3.2)
+1. Give a failed write with a 5xx the same "check before running it again" rule as exits
+   1 and 9, kept in one place. (F12.1)
+2. Stop `comment` and `link` errors from coming out as exit 8 "needs fields". (F3.1)
+3. Take the `|` examples out of the Markdown table, so agents do not copy `\|` into Jira.
+   (F5.1)
+4. Bring the README line on limits in line with R11. (F5.2)
 
 ## Findings
 
 ### 1. Role boundaries
 
-Not applicable: the kit has no roles. The skill states its own limits on credentials and
-settings: "never ask for them, print them or put them in a file" (SKILL.md:20); "Read it
-when you need the project's words; the user changes it, not you." (SKILL.md:91). Write
-rights in Jira: F12.1.
+Not applicable: no roles. The skill states its rights: "Reading is always fine. Create,
+transition, comment or link only when your role, your" (SKILL.md:25); "the user changes
+it, not you" (SKILL.md:100).
 
 ### 2. Handoffs between steps
 
-Not applicable: no flows, no `produces` or `reads`. The script's output is stdout plus
-one stderr line per failure.
+Not applicable: no flows.
 
 ### 3. Done and outcomes
 
-- **F3.1** [medium] `skills/tracker/jira.py:302`
-  > if fields:
-  Every 4xx answer that carries an `errors` map becomes exit 8 "Jira refused the fields".
-  That includes an invalid value (a wrong epic key, an unknown priority) and "Field
-  'resolution' cannot be set. It is not on the appropriate screen". SKILL.md:106 reads
-  exit 8 as "Jira needs fields (named) | give them and run again", so the agent adds
-  fields where it should remove or correct one.
-  Fix: send only errors for fields missing from the request to `FIELDS_REQUIRED`, and the
-  rest to `REFUSED` (11). Or reword row 8 as "Jira refused or needs the named fields: add
-  the missing ones, correct or remove the refused ones; once, then ask". Passes: 2/3
-  (medium in both).
+- **F3.1** [medium] `skills/tracker/jira.py:529`
+  > result = jira.call("POST", "issue/%s/comment" % urllib.parse.quote(args.key),
+  `cmd_comment` and `cmd_link` (`jira.py:537`, `jira.call("POST",
+  "issue/%s/remotelink" % urllib.parse.quote(args.key), body=body,`) pass no `sent`, so
+  any `errors` map Jira returns for them reaches `jira.py:316` (`if fields and not
+  set(fields) & set(sent):`) and comes out as exit 8 "Jira needs the fields". Two passes
+  confirmed it with a fake Jira: `{"url": "Invalid URL"}` gave `jira.py: Jira needs the
+  fields: url (Invalid URL)`, exit 8. A comment over Jira's length limit is another case.
+  Row 8 (SKILL.md:117) says "give them and run again", but neither command takes
+  `--field`, so the agent wastes a step or misreads the failure. Impacts across passes
+  were low, low and medium; medium is taken.
+  Fix: return exit 8 only when `sent` is non-empty (create, transition) and exit 11
+  otherwise, or pass `sent` from both commands. Passes: 3/3.
 
-- **F3.2** [medium] `skills/tracker/SKILL.md:109`
-  > | 11 | Jira refused the request (bad JQL, unknown type, transition not open) | read the line, fix the request once; if it still fails, ask |
-  Exit 11 also covers a wrong `JIRA_URL`: a redirect (`jira.py:297` `return
-  Failure(REFUSED, "Jira answered with a redirect (%d), not followed: set "`) and a
-  non-JSON answer (`jira.py:253`). A URL without Jira's context path gives 404, which
-  becomes exit 7 "task … not found: check the key". The agent then "fixes the request"
-  or chases the key, when only the user can fix the environment (known hole 1).
-  Fix: give the redirect and non-JSON cases their own code (for example 13 "JIRA_URL
-  wrong or SSO: tell, do not retry"), or say in rows 7 and 11: "if the line names
-  JIRA_URL, report it; do not change the request". Passes: 2/3 (medium in both).
-
-- **F3.3** [medium] `skills/tracker/jira.py:585`
-  > except Failure as failure:
-  `main()` catches only `Failure`. A `JIRA_URL` without a scheme raises at `jira.py:234`
-  (`request = urllib.request.Request(url, data=data, method=method)`, outside the
-  `try`). `http.client.HTTPException` (`IncompleteRead`, `BadStatusLine`) also escapes.
-  The agent gets a traceback and exit 1, which the SKILL.md table does not list.
-  Confirmed by running it: `JIRA_URL=jira.example.com … jira.py get X-1` →
-  `ValueError: unknown url type: 'jira.example.com/rest/api/2/issue/X-1?…'`, exit 1.
-  Fix: check `JIRA_URL` in `Jira.__init__` (see F12.2), catch `http.client.HTTPException`
-  as `UNREACHABLE`, and add a row "1 | the script crashed | report its last line; do not
-  repeat a write". Passes: 2/3 (medium, low → medium).
+- **F3.2** [low] `skills/tracker/jira.py:257`
+  > http.client.HTTPException) as error:
+  `http.client.InvalidURL` is a subclass of `HTTPException`, so a malformed `JIRA_URL`
+  port comes out as "not reachable, VPN?" instead of exit 4 "JIRA_URL is wrong". Run:
+  `JIRA_URL=https://jira.example.com:abc … jira.py get X-1` gives `jira.py: Jira is not
+  reachable (InvalidURL): are you on the VPN or the company network?` and exit 9. Both
+  codes send the case to the user, so only the hint is wrong.
+  Fix: in `Jira.__init__`, read `url.port` in a `try` and turn a `ValueError` into
+  `SETUP`. Passes: 1/3, confirmed (the run above).
 
 ### 4. Independent verification
 
-Not applicable: no flows and nothing merged by the kit. The script is checked by 36 offline
-tests before the trial in the real Jira, which needs the human's yes (BLUEPRINT R10).
+Not applicable: no flows. The trial in the real Jira needs the human's yes (BLUEPRINT
+R10).
 
 ### 5. Contradictions
 
-- **F5.1** [medium] `skills/tracker/jira.py:300`
-  > return Failure(SERVER_ERROR, "Jira failed (%d)%s: try later or tell the user"
-  The script's line says "try later", but SKILL.md:95 says "it never retries" and the
-  row for 12 (SKILL.md:110) says "tell the user and go on without the tracker". "Go on
-  without the tracker" also overrides a process step whose result is a Jira change: the
-  step can end as if the task had moved. In the same way, the 403 line (`jira.py:291`)
-  tells the agent to "ask the project's Jira admin for the permission", which no agent
-  can do.
-  Fix: make the script's hints say only what the table says (drop "try later" and "ask
-  the … admin"); change row 12 to "report it (F7.1); whether your step can go on without
-  the tracker is your step's decision". Passes: 2/3 (medium, low → medium).
+- **F5.1** [medium] `skills/tracker/SKILL.md:72`
+  > | table | `\|\|Head\|\|Head\|\|` once, then `\|cell\|cell\|` per row |
+  The `\|` is Markdown's escape for a pipe inside a table cell. Agents read SKILL.md as
+  raw text, so the "Write" column tells them to write `\|\|Head\|\|`. In Jira wiki markup
+  a backslash escapes the next character, so the table would show up as literal pipes in
+  the user's name. The link row has the same problem (SKILL.md:73: `` | link |
+  `[text\|https://...]`, a task by its bare key `KEY-1` | ``); it was already there at
+  b245615 and was missed then. Whether an agent drops the backslashes varies from run to
+  run.
+  Fix: put the table and link examples in a fenced block or a list below the table
+  (`||Head||Head||`, `|cell|cell|`, `[text|https://...]`), where `|` needs no escape.
+  Passes: 1/3, confirmed (`grep -nF '\|' skills/tracker/SKILL.md` gives only lines 72 and
+  73, both in the "Write" column).
+
+- **F5.2** [low] `README.md:68`
+  > script adds no mark. The kit sets no limits on what agents do in Jira; a process kit
+  Since R11, SKILL.md:25 sets a default write scope ("Reading is always fine. Create,
+  transition, comment or link only when your role, your…"). A process-kit author who
+  reads only the README will expect agents to write freely. The line was not changed, but
+  the change made it false.
+  Fix: "By default agents only read; they create, transition, comment or link when their
+  role, their step or the human asks (SKILL.md). A process kit may allow more." Passes:
+  3/3.
 
 ### 6. Duplication
 
-- **F6.1** [low] `README.md:51`
-  > labels: [lado]                # added to every task the agents create
-  The `.lado/tracker.yaml` example is written twice, in README.md:44-55 and
-  SKILL.md:77-89, and the copies already differ. SKILL.md has `task: Task` and "your
-  process"; the `fields:` comment is "different in each Jira" in one and "from
-  $JIRA_URL/rest/api/2/field" in the other. The README's hint on where to find field ids
-  is useful to agents too and is missing from SKILL.md.
-  Fix: keep the full example in SKILL.md, with the `/rest/api/2/field` hint, and give
-  the README a minimal example plus a pointer. Passes: 2/3 (low in both).
+The "check before running a write again" rule is written twice, in rows 1 and 9; it is
+part of F12.1 and its fix. The settings example now lives only in SKILL.md, and the README
+points to it (README.md:60-62).
 
 ### 7. When to call the human
 
-- **F7.1** [high] `skills/tracker/SKILL.md:103`
-  > | 5 | credentials refused, or Jira wants a CAPTCHA | stop using Jira and tell the user: one more try can lock the login; after a CAPTCHA they log in once in a browser |
-  The exit table sends exits 3, 4, 5, 6, 9, 10 and 12 to "the user" and exits 7, 8 and 11
-  to "ask", without saying whom. The skill is listed by roles of process kits, most of
-  them workers, and in LADO only the lead talks to the human. A worker will message the
-  human past the lead, or say it in its own pane where nobody reads it. Row 9 adds "and
-  wait" with no condition for going on, so the step stalls. On exit 5 only the agent that
-  hit it stops; others in the session using the same login keep trying toward the CAPTCHA
-  lock. This is known hole 5 (also criterion 5); impacts high, high, medium, taken high.
-  Fix: one line above the table: "Tell the user / ask: as a worker, send the printed line
-  and the command to the supervisor with `send_message` and wait for its answer; as the
-  lead, tell the human. On exit 5 the lead tells every agent to stop using Jira until the
-  human says it is fixed." Passes: 3/3.
+Handled: "To **report** a failure: as a worker, send the supervisor that line and the
+command with `send_message` and wait for its answer; as the lead, tell the human."
+(SKILL.md:104-106). Row 5 adds the stop rule for every agent. LADO's skills are visible
+to every agent of the session (`lado/kits.py`, the check behind `skill "…" is not visible
+to agent`), so the lead can read row 5 too.
 
 ### 8. Loops on a later visit
 
-Not applicable: no flows. Repeats are bounded in the text: "it never retries"
-(SKILL.md:95), "fix the request once; if it still fails, ask" (SKILL.md:109).
+Not applicable: no flows. Repeats are bounded: "it never retries" (SKILL.md:104), "fix the
+request once" (row 11).
 
 ### 9. Concision and why
 
-- **F9.1** [low] `skills/tracker/jira.py:450`
-  > if transition_id:
-  `_transitions` takes a `transition_id` that no caller passes (`grep -n "_transitions("`:
-  lines 464 and 475, both `_transitions(jira, args.key)`), so this branch is dead code.
-  Fix: remove the parameter and the branch. Passes: 1/3, confirmed (the grep above).
-
-The rest is concise, and the non-obvious rules carry their reasons: the mark ("Whatever
-you write in Jira appears in the user's name", SKILL.md:21-22), exit 5 ("one more try can
-lock the login").
+No findings. The new lines carry their reasons, for example `jira.py:226` "# The password
+goes in every request: only over TLS, or to this machine (tests)." and row 5 "one more try
+can lock the login".
 
 ### 10. Skill descriptions
 
-The description says what the skill holds and when to use it: "Use whenever your work
-touches a task in the tracker, e.g. "file a bug", "take the task"…" (SKILL.md:6-7). The
-kit has one skill, no `dependencies.skills` and no neighbour; the future
-`tracker-jira-cloud` kit shares the name by design (R2), and two tracker kits in one
-session are refused by LADO.
+Unchanged and fine: it says what the skill holds and when to use it ("Use whenever your
+work touches a task in the tracker", SKILL.md:6). There are no dependency skills.
 
 ### 11. Provider neutrality
 
-`python3 ${SKILL_DIR}/jira.py` with a neutral fallback: "If your CLI does not expand
-`${SKILL_DIR}`, use the folder this SKILL.md is in." (SKILL.md:19). No CLI tool names, and
-no absolute or home paths in the skill or the script. The macOS `security` line is in the
-human-facing README, marked "On macOS".
+`${SKILL_DIR}` with a neutral fallback (SKILL.md:19). `send_message` is LADO's own tool.
+No CLI tool names, and no absolute or home paths in the skill or the script.
 
 ### 12. Safety and scope
 
-- **F12.1** [high] `skills/tracker/SKILL.md:6`
-  > Use whenever your work touches a task in the tracker, e.g. "file a bug", "take the
-  Create, transition, comment and link leave the machine and appear in the user's name in
-  the corporate Jira, yet the skill invites any agent to do them whenever its work
-  "touches a task". The only scope rule is in the README (README.md:64: "The kit sets no
-  limits on what agents do in Jira; a process kit"), which agents do not read. A role
-  that lists the skill without its own rules may close or comment on tasks unasked
-  (known hole 2). The blueprint leaves the *limits* (deletes, closing, others' tasks) to
-  the trial, but that does not settle whether a write needs an ask at all. Impacts
-  medium, high, medium, taken high.
-  Fix: one line in SKILL.md: "Reading is always fine; create, transition, comment or link
-  only when your role, your step or the human asks for it, and only on the tasks named."
-  Passes: 3/3.
+- **F12.1** [medium] `skills/tracker/SKILL.md:121`
+  > | 12 | Jira itself failed (5xx) | report it; whether your step can go on without the tracker is your step's decision |
+  A 5xx on a POST can come after Jira applied the write: a 502 or 504 from a proxy, or a
+  500 from a post-function after the task was created. Rows 1 and 9 tell the agent to
+  check with `get` or `search` before running a write again; row 12 does not, and the
+  script's line (`jira.py:315`, `return Failure(SERVER_ERROR, "Jira failed (%d)%s" %
+  (code, detail))`) has no "may have been applied" hint as exit 9 has. Pass 1 confirmed it
+  with a fake Jira answering 504: `echo hi | jira.py comment X-1 -` gave `jira.py: Jira
+  failed (504)`, exit 12. A rerun after "Jira is fixed" can duplicate a task or a comment
+  in the user's name. The rule is also written twice already, in rows 1 and 9.
+  Fix: one sentence under the table, "After exit 1, 9 or 12 on a write, `get` or `search`
+  before running it again: it may have been applied", dropped from rows 1 and 9; and the
+  same hint on the 5xx line for any method other than GET. Passes: 3/3.
 
-- **F12.2** [medium] `skills/tracker/jira.py:221`
-  > self.base = os.environ["JIRA_URL"].rstrip("/")
-  Any scheme is accepted. With an `http://` `JIRA_URL`, the Basic header carrying the
-  user's own corporate password goes out in clear text on every request; 8.13 has no
-  personal access tokens to limit the damage. This works against R7's "TLS verified …
-  never disabled". Confirmed by running it: `JIRA_URL=http://127.0.0.1:9 … jira.py get X-1`
-  → `jira.py: Jira is not reachable (ConnectionRefusedError): …`, exit 9, so the request
-  was attempted. The tests use an `http://` fake Jira (`tests/test_jira.py:112`), which
-  explains why.
-  Fix: refuse a URL that is not `https://` with exit 4 or 3 and one line, and let the
-  tests allow `http://127.0.0.1` only through a test-only switch. Passes: 1/3, confirmed
-  (the run above).
-
-- **F12.3** [medium] `skills/tracker/jira.py:263`
-  > return Failure(UNREACHABLE, "Jira did not answer in %d seconds: are you on the "
-  A timeout is reported the same way for a POST as for a GET, but a `create`, `comment`
-  or `transition` that timed out may already be applied. Row 9 (SKILL.md:107) says
-  "tell the user … and wait", and SKILL.md:112 says only "never guess the task's state".
-  A rerun after the wait can then create a duplicate task or post a comment twice.
-  Fix: in SKILL.md, for exit 9 after a write: "before running it again, `get` or
-  `search` to see whether it was applied". Passes: 1/3, confirmed (`_network_failure`,
-  jira.py:256-266, takes no method, and `create` has no idempotency key).
-
-- **F12.4** [low] `skills/tracker/jira.py:433`
-  > fields.update(parse_fields(args.field))
-  This runs after the marked description is set (`jira.py:424`
-  `fields["description"] = mark(read_text(args.description))`), so
-  `--field description=...` replaces it and the task is created without
-  `[LADO: <agent>]`, against R9.
-  Fix: apply `mark()` to `fields["description"]` after merging `--field`, or refuse
-  `description` in `--field`. Passes: 1/3, confirmed (the order of lines 424 and 433).
-
-- **F12.5** [low] `README.md:31`
-  > export JIRA_PASSWORD="$(security find-generic-password -s jira -a "$JIRA_USER" -w)"
-  LADO builds each agent's environment by running the user's login shell with a time
-  limit (`~/Projects/lado/src/lado/agent_env.py`: `TIMEOUT = 10  # seconds the shell may
-  take`). A keychain prompt or a locked keychain stalls the profile, and every agent
-  launch fails with a cause the README does not name.
-  Fix: one README line: allow `security` to read the item ("Always Allow") and run the
-  line once in a new terminal before the first session. Passes: 1/3, confirmed
-  (agent_env.py).
-
-TLS otherwise holds: `ssl.create_default_context(cafile=cafile)` (jira.py:225) keeps
-verification and hostname checks. Redirects are not followed, so the Authorization header
-never reaches another host. Credentials never appear in output (asserted by the tests).
+TLS, the mark and the write scope otherwise hold: `jira.py:227-230` accepts only
+`https://` (or `http://` to this machine, for the tests); the mark is applied after
+`--field` (`jira.py:447-450`); R11 is at SKILL.md:25-27.
 
 ## Known holes
 
 | Known hole | Finding, or how the kit handles it |
 |---|---|
-| 1. Red check sent back with no environment cause considered | Mostly handled: environment faults have their own codes (4, 5, 9, 10, 12). A wrong `JIRA_URL` still comes out as exit 7 or 11, "fix the request" (F3.2), and a crash as exit 1 (F3.3). |
-| 2. Work outside a flow, merge without a gate | No flows, no git work. Jira writes have no scope or ask in the skill (F12.1). |
-| 3. Path outside the run's worktree | Handled: `find_config` stops at the first `.git`, a worktree's `.git` file included (`if os.path.exists(os.path.join(here, ".git")):`, jira.py:173). LADO excludes only `/.lado/worktrees/` from git, so a committed `.lado/tracker.yaml` reaches every worktree (README.md:41). |
+| 1. Red check sent back with no environment cause considered | Handled. A wrong `JIRA_URL`, a redirect or an answer that is not Jira's is exit 4, "the user fixes their shell profile" (SKILL.md:113), and a crash is exit 1. Left: F3.2 (a malformed port shown as unreachable, still an environment code). |
+| 2. Work outside a flow, merge without a gate | No git work. Jira writes are scoped by SKILL.md:25-27 (R11); the README contradicts it (F5.2). |
+| 3. Path outside the run's worktree | Handled: `find_config` stops at the first `.git` (`jira.py:177`, `if os.path.exists(os.path.join(here, ".git")):`), including a worktree's `.git` file. |
 | 4. Verdict without a severity threshold | Not applicable: no reviewer. |
-| 5. Dependency skill that writes or asks where its role must not | The kit's own skill tells the agent to "tell the user" / "ask", and it is listed on workers (F7.1). |
+| 5. Dependency skill that writes or asks where its role must not | Handled: SKILL.md:104-106 sends a worker's report to the supervisor with `send_message`; only the lead tells the human. |
 
 ## Not traced
 
-Nothing. Every element (kit.yaml, the `tracker` skill, `jira.py`, `tests/test_jira.py`,
-README.md) is named by a requirement in BLUEPRINT.md's table, every budget measure is
-green, and the blueprint has no flow skeletons because the kit has no flows (R2). The
-built skill and script meet R1–R10, except where F3.1 (R8: exit 8 also covers invalid
-values), F12.2 (R7: TLS can be bypassed with `http://`) and F12.4 (R9: the mark can be
-bypassed) name a gap.
+Nothing. R11 is traced to the `tracker` skill (the traceability row and the reverse
+check). Every element is named by a requirement, every budget measure is green, and the
+blueprint has no flow skeletons because the kit has no flows (R2). The R6 note on
+localized names is in README.md:55-58. The R7 markup coverage is in SKILL.md:65-77, with
+F5.1 to fix. Cosmetic: R11 is listed between R9 and R10.
 
-## Questions for the human
+## Previous findings
 
-1. Must a write to Jira (create, transition, comment, link) have an ask from the role,
-   the step or you, from v0.1.0? The blueprint defers the *limits* to the trial; F12.1
-   asks only for the scope line. Recommended: yes, one line in SKILL.md now, with the
-   detailed limits at the trial.
-2. Trial check, not confirmed offline: Jira Server's createmeta may list `reporter` as
-   `required: true, hasDefaultValue: false`, even though a REST create without a reporter
-   succeeds and uses the caller. If CRM3 does, every `create` stops with exit 8 "needs:
-   Reporter". Recommended: look at CRM3's createmeta during the trial, before the first
-   `create`, and exempt `reporter` in the pre-check if needed.
+| Id | Status | Evidence |
+|---|---|---|
+| F3.1 exit 8 for refused values | RESOLVED for create and transition | `jira.py:316` `if fields and not set(fields) & set(sent):` → exit 8; otherwise `"Jira refused the values: %s"` → exit 11. Row 11 names "a refused field value". Comment and link: new F3.1 |
+| F3.2 wrong `JIRA_URL` as exit 7/11 | RESOLVED | A redirect, a non-JSON answer and a non-Jira 404 give `SETUP` (exit 4), `jira.py:304-309` and `:264`. SKILL.md:113: "`JIRA_URL` is wrong (not `https://`, a redirect, not Jira's answer)" |
+| F3.3 traceback, exit 1 | RESOLVED | The scheme check is at `jira.py:227-230`, and `HTTPException` is caught at `:257`. Row "1 \| the script crashed" (SKILL.md:110). `JIRA_URL=jira.example.com` now gives exit 4 |
+| F5.1 "try later", "ask the admin" | RESOLVED | `jira.py:315` `"Jira failed (%d)%s"`, `:311` `"no access (403)%s"`. Row 12: "whether your step can go on without the tracker is your step's decision" |
+| F6.1 settings example twice | RESOLVED | The README has a minimal example plus a pointer (README.md:60-62); SKILL.md:95 has the `field` hint |
+| F7.1 "tell the user" for workers | RESOLVED | SKILL.md:104-106; row 5 "The lead tells every agent to stop using Jira until the human says it is fixed" |
+| F9.1 dead parameter | RESOLVED | `jira.py:466` `def _transitions(jira, key):` |
+| F12.1 no write scope | RESOLVED | SKILL.md:25-27 (R11) |
+| F12.2 `http://` accepted | RESOLVED | `jira.py:227-230`; `http://jira.example.com` gives exit 4. Loopback `http` is kept for the tests |
+| F12.3 timed-out write rerun | RESOLVED for exit 9 | `jira.py:273` "the change may have been applied: check with get or search…"; row 9. The 5xx case: new F12.1 |
+| F12.4 `--field description` drops the mark | RESOLVED | `jira.py:447-450`: `mark()` runs after `--field` is merged |
+| F12.5 keychain stalls the profile | RESOLVED | README.md:34-36 |
+| Question 1 (write scope) | Answered: R11, which the human agreed at the second design visit | BLUEPRINT R11 |
+| Question 2 (reporter in createmeta) | Handled in code | `jira.py:453-456` skips `reporter` in the pre-check; still to be seen on CRM3 at the trial |
+
+## Cut rules
+
+| Removed rule (file:line at base) | Where it is now |
+|---|---|
+| Row 5 "after a CAPTCHA they log in once in a browser" (SKILL.md:103) | The script's line, `jira.py:296-298` "the user logs in to Jira in a browser once (not retried)", which the agent reports; README.md:39-40 |
+| Row 9 "and wait" (SKILL.md:107) | SKILL.md:105-106 "and wait for its answer" |
+| Row 6 "do not look for a way around" (SKILL.md:104) | Row 6 "look for no way around" (SKILL.md:115) |
+| Row 12 "go on without the tracker" (SKILL.md:110) | Removed on purpose (F5.1); row 12 leaves it to the step |
+| Script hints "try later", "ask the project's Jira admin", "then run again" (jira.py:300, 291, 284) | Removed on purpose (F5.1); the table's rows 12, 6 and 5 hold what to do |
+| README "The file is a strict subset of YAML … anything else stops the script with the line and what is wrong" (README.md:57-58) | SKILL.md:83-84 (the format) and row 3 "invalid" |
+| README full settings example, `issue_types`/`labels`/`fields` (README.md:46-54) | SKILL.md "Project settings"; README.md:60-62 points there |
+| `create` without a description still gets the mark (jira.py:425-426) | `jira.py:448-450`: `mark(fields.get("description") or "")` gives the mark alone when `LADO_AGENT` is set |
+
+No rule lost.
+
+## Missed earlier
+
+None. In `create` all of the text counts as changed, so the `[text\|…]` link row missed
+by the first round is a finding here (F5.1), not listed under this heading.
 
 ## Found on the way
 
 - `[kit-builder]` The `kit-budget` flow script (`flow_diagram.py`) has no case for a kit
-  without `flows/`. Given the kit folder, it reads `kit.yaml` as a flow and exits 2 with
-  `error: kit.yaml: states must be a non-empty mapping`, both with `--out` and with
-  `--compare BLUEPRINT.md`. It should report "no flows" and, for `--compare`, "no
-  skeletons, no flows: nothing to compare" with exit 0.
+  without `flows/`: it reads `kit.yaml` as a flow and exits 2 with `error: kit.yaml:
+  states must be a non-empty mapping`, both with `--out` and with `--compare`. It should
+  say "no flows" and exit 0. Still open; it is not this kit's file.
