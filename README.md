@@ -1,4 +1,4 @@
-# lado-kit-tracker-jira-server
+# kit-tracker-jira-server
 
 A LADO kit for Jira Server and Data Center 8.4 or newer. It gives the roles of any process kit a
 skill named `tracker` that finds, reads, creates, moves and comments on tasks and links a
@@ -14,7 +14,7 @@ script's credentials error (exit 5) says the lead tells every agent to stop usin
 ## Install and start
 
 ```bash
-lado kits add https://github.com/ladohq/lado-kit-tracker-jira-server
+lado kits add https://github.com/ladohq/kit-tracker-jira-server
 lado start <repo> --kit <process-kit> --kit tracker-jira-server
 ```
 
