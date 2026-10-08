@@ -2,19 +2,19 @@
 
 - Date: 2026-10-08
 - Kit: `.` (the run's worktree of `create/tracker-jira-server`), path given
-- Commit: 444ed6a
+- Commit: ec8af0b
 - Evaluated by: kit-builder critic (layers a and b)
-- Mode: re-evaluation against this report's previous version (commit cef230c, kit at
-  548abd2), `git diff cef230c -- kit.yaml README.md BLUEPRINT.md agents flows skills`.
-  This is the third round. The first round (eeb9073) was a full evaluation; the second
-  (cef230c) was three full passes over the whole kit, since in `create` all of the text is
-  new. This round reviews the fix commit 444ed6a.
-- Passes: three independent sub-agents, each with the rubric, the kit folder, this
-  report's previous version and the diff. They started from SKILL.md's changed sections
-  (pass 1), from `jira.py`'s diff and the `sent` semantics (pass 2), and from the README
-  and the raw SKILL.md with `--word-diff` (pass 3). Each covered all 12 criteria and the
-  known holes over the changed text and the places it points to. I checked the cut rules
-  myself as well. Of 2 one-pass findings, 2 were kept as confirmed and 0 dropped.
+- Mode: re-evaluation against this report's previous version (commit e46a075, kit at
+  444ed6a), `git diff e46a075 -- kit.yaml README.md BLUEPRINT.md agents flows skills`.
+  This is the fourth round. Round one (eeb9073) was a full evaluation, and round two
+  (cef230c) made three full passes over the whole kit. This round reviews ec8af0b: 8
+  changed lines in `Jira.__init__` of `jira.py`, plus tests.
+- Passes: I made the three passes myself, without sub-agents, because the change is 8
+  lines in one function. Pass 1 read the diff against SKILL.md row 4. Pass 2 read the code
+  path of every `JIRA_URL` shape. Pass 3 ran the script with five `JIRA_URL` values (see
+  "Previous findings"). Each pass covered all 12 criteria and the known holes over the
+  change and what it points to (SKILL.md row 4, README "Credentials"). There were no
+  one-pass findings.
 
 Findings are candidates for the human to weigh, not a pass/fail grade.
 
@@ -25,8 +25,8 @@ Findings are candidates for the human to weigh, not a pass/fail grade.
 | a. `lado kits check` | OK; 0 warnings |
 | a. Budget | green; no yellow or red measure |
 | a. Flows | 0 drawn (the kit has no flows); `--compare` not applicable, see "Flows" |
-| b. Rubric | 2 findings (0 high, 0 medium, 2 low); 11 of 12 criteria without findings. All 5 previous findings RESOLVED |
-| Covers | re-evaluation of the changed text (README.md:66-70; SKILL.md "Writing in Jira" and "When the script fails"; `jira.py` `Jira.__init__`, `call`, `_network_failure`, `_http_failure`, `cmd_comment`, `cmd_link`), with what it points to; no full pass, since the three passes of the previous round were full; tests/test_jira.py run (46 tests, OK) |
+| b. Rubric | 0 findings; 12 of 12 criteria without findings. Both previous findings RESOLVED |
+| Covers | re-evaluation of the changed text (`jira.py` `Jira.__init__`, lines 221-240) and what it points to (SKILL.md row 4, README "Credentials"); no full pass, since round two's passes were full; tests/test_jira.py run (46 tests, OK) |
 | Stop rule | holds: no high and no medium finding in the changed text |
 
 The count covers only what the row "Covers" names: a count of a re-evaluation and one of a
@@ -73,18 +73,13 @@ error: kit.yaml: states must be a non-empty mapping   (exit status 2)
 
 ## Fix first
 
-Nothing blocks. Both findings are low and concern the same `JIRA_URL` check; they can wait
-for the `improve` run after the trial:
-
-1. Parse `JIRA_URL` inside the `try` and give a malformed port its own message. (F3.1,
-   F3.2)
+Nothing.
 
 ## Findings
 
 ### 1. Role boundaries
 
-Not applicable: no roles. The skill states its rights at SKILL.md:25-27 ("Reading is
-always fine. Create, transition, comment or link only when your role, your…"), unchanged.
+Not applicable: no roles. Not touched by the change.
 
 ### 2. Handoffs between steps
 
@@ -92,31 +87,12 @@ Not applicable: no flows.
 
 ### 3. Done and outcomes
 
-- **F3.1** [low] `skills/tracker/jira.py:235`
-  > raise Failure(SETUP, "JIRA_URL must be Jira's https:// base address: the "
-  A malformed port (`https://jira.example.com:abc`) now gets the right code, 4, but still
-  this message, which says the URL must be `https://` although it already is. Run:
-  `jira.py: JIRA_URL must be Jira's https:// base address: the password is sent with
-  every request`, exit 4. The user looks for the wrong mistake; row 4 does point at
-  `JIRA_URL`.
-  Fix: a separate line when the port is malformed, e.g. "JIRA_URL has a malformed port".
-  Passes: 1/3, confirmed (the run above).
-
-- **F3.2** [low] `skills/tracker/jira.py:227`
-  > url = urllib.parse.urlsplit(self.base)
-  `urlsplit` sits just above the new `try`, which only guards `url.port`. A malformed IPv6
-  host raises there: `JIRA_URL='https://[::1' … jira.py get X-1` ends with `ValueError:
-  Invalid IPv6 URL`, exit 1, instead of exit 4. Row 1 ("report its last line") still gets
-  it to the user, so only the code is off. Pass 2 of the previous round noted it as
-  covered by row 1. The line comes from 601bf60, so in `create` it counts as changed
-  text, not "Missed earlier".
-  Fix: move `urlsplit` into the same `try` and turn its `ValueError` into `SETUP`. Passes:
-  1/3, confirmed (the run above; `git blame -L227,227` gives 601bf60).
-
-Otherwise the exit codes match their rows. A field error on `comment` or `link` is exit 11
-(`jira.py:324`, `if fields and sent is not None and not set(fields) & set(sent):`;
-`sent=None` at `:538` and `:546`). A malformed port is exit 4. A write that fails with a
-5xx carries the "may have been applied" hint (`jira.py:323`).
+No findings. Every malformed `JIRA_URL` now ends in exit 4, which SKILL.md row 4 covers
+("a Jira variable is unset, or `JIRA_URL` is wrong (not `https://`, a redirect, not
+Jira's answer)"). Each line names its own cause: `jira.py:233` `raise Failure(SETUP,
+"JIRA_URL is not a valid address (host, port): it must be "` for an address that does not
+parse, and the "must be Jira's https:// base address" line only for a parsed address that
+is not https. `urlsplit` is now inside the `try` (`jira.py:228`).
 
 ### 4. Independent verification
 
@@ -147,8 +123,8 @@ Not applicable: no flows.
 
 ### 9. Concision and why
 
-No findings. The new code comment carries its reason: `jira.py:321` "# A proxy's 502/504
-or a failing post-function can follow an applied write."
+No findings. The https rule keeps its reason: "# The password goes in every request: only
+over TLS, or to this machine (tests)."
 
 ### 10. Skill descriptions
 
@@ -161,14 +137,15 @@ human-facing README.
 
 ### 12. Safety and scope
 
-No findings. The write scope is stated in SKILL.md and the README, and they agree. A
+No findings. The change keeps the https-only check, now behind the parse check, and adds
+no way past it. The write scope is stated in SKILL.md and the README, and they agree. A
 failed write with exit 1, 9 or 12 is checked before it runs again.
 
 ## Known holes
 
 | Known hole | Finding, or how the kit handles it |
 |---|---|
-| 1. Red check sent back with no environment cause considered | Handled. A malformed port is now exit 4 (an environment fault), not "VPN?". Left: F3.1 (the message) and F3.2 (IPv6, exit 1). |
+| 1. Red check sent back with no environment cause considered | Handled. Every malformed `JIRA_URL` is exit 4 (an environment fault, "the user fixes their shell profile") with a line naming its cause; none is a traceback any more. |
 | 2. Work outside a flow, merge without a gate | No git work. Jira writes are scoped by SKILL.md:25-27 (R11), and README.md:68-70 now agrees. |
 | 3. Path outside the run's worktree | Unchanged, handled: `find_config` stops at the first `.git`. |
 | 4. Verdict without a severity threshold | Not applicable: no reviewer. |
@@ -176,7 +153,7 @@ failed write with exit 1, 9 or 12 is checked before it runs again.
 
 ## Not traced
 
-Nothing. BLUEPRINT.md did not change this round. Every element is named by a requirement,
+Nothing. BLUEPRINT.md did not change this round or the last one. Every element is named by a requirement,
 every budget measure is green, and the blueprint has no flow skeletons because the kit has
 no flows (R2). Cosmetic and left by the author: R11 is listed between R9 and R10.
 
@@ -184,22 +161,17 @@ no flows (R2). Cosmetic and left by the author: R11 is listed between R9 and R10
 
 | Id | Status | Evidence |
 |---|---|---|
-| F12.1 5xx after a write | RESOLVED | SKILL.md:130-131, once for exits 1, 9 and 12; `jira.py:323` adds `APPLIED` for any method other than GET. A fake Jira answering 504 to `comment` gave `Jira failed (504)…; the change may have been applied: check with get or search before running it again`, exit 12; a GET gave no hint |
-| F3.1 comment/link field errors as exit 8 | RESOLVED | `sent=None` (`jira.py:538`, `:546`) and `:324`. A fake Jira gave `link` → `Jira refused the values: url (Invalid URL)`, exit 11; `comment` → exit 11 |
-| F3.2 malformed port as exit 9 | RESOLVED | `jira.py:228-231` reads `url.port` in a `try`; `:abc` and `:99999` give exit 4. Message: new F3.1 |
-| F5.1 `\|` in the markup table | RESOLVED | SKILL.md:72 `\| table, link \| see below the table \|`; fenced examples at :78-82; no `\|` in SKILL.md |
-| F5.2 README "sets no limits" | RESOLVED | README.md:68-70 |
+| F3.1 malformed port gets the "must be https://" message | RESOLVED | `JIRA_URL=https://jira.example.com:abc … get X-1` → `jira.py: JIRA_URL is not a valid address (host, port): it must be Jira's https:// base address`, exit 4 |
+| F3.2 `https://[::1` gives a traceback | RESOLVED | The same line and exit 4. `url = urllib.parse.urlsplit(self.base)` is now inside the `try` (`jira.py:228`) |
+
+Other shapes checked in the same run: `http://jira.example.com` gives "must be Jira's
+https:// base address", exit 4; `https://` and `jira.example.com` (no scheme) give "not a
+valid address", exit 4. The tests cover both messages (`tests/test_jira.py:471`, `:475`).
 
 ## Cut rules
 
-| Removed rule (file:line at base) | Where it is now |
-|---|---|
-| Row 1 "repeat no write before you checked with `get` or `search`" (SKILL.md:110) | SKILL.md:130-131, for exit 1 on a write |
-| Row 9 "After a write, `get` or `search` before running it again: it may have been applied" (SKILL.md:118) | SKILL.md:130-131, word for word, now also for exits 1 and 12 |
-| Link row "a task by its bare key `KEY-1`" (SKILL.md:73) | SKILL.md:76 "a task's bare key `KEY-1` links to it" |
-| README "The kit sets no limits on what agents do in Jira" (README.md:68) | Replaced on purpose by the R11 scope (F5.2) |
-
-No rule lost.
+None removed: the diff only moves `urlsplit` into the `try` and splits one condition into
+two, and the https-only rule (the `# The password goes in every request` check) is kept.
 
 ## Missed earlier
 
