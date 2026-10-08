@@ -90,11 +90,13 @@ project.
   `trial-lado-session`); these trials stand for the trial on the human's real Jira.
   v1.0.0 is released after the same sandbox trial is repeated on the built branch, before
   the human's release approval; the first real project is the first use after the
-  release, not a condition of it. The official marketplace takes the repository renamed
-  to `lado-kit-tracker-jira-server` (`lado-kit-format`, "Publishing"); the rename is done
-  at the release step with the human's yes. *Source:* brief, settled 8; design round Q7;
-  improve triage 2026-10-08 (report 37181e0, F12.1, F12.4; the human: "после обновления
-  повторим эксперимент", "согласен со всеми пунктами").
+  release, not a condition of it (trial of 1.0.0: artifact `trial-1.0.0` of run
+  `improve/tracker-jira-server`). The repository keeps its name `kit-tracker-jira-server`:
+  kits of the ladohq organisation are named `kit-<name>` (the official marketplace's
+  README, "Propose a kit", 4). *Source:* brief, settled 8; design round Q7; improve triage
+  2026-10-08 (report 37181e0, F12.1; the human: "после обновления повторим эксперимент",
+  "согласен со всеми пунктами"); F12.4 of that report withdrawn by the human ("Не
+  переименовываем репозиторий").
 
 Decided at the improve triage (2026-10-08): no limits for agents beyond R11 (deletes,
 closing tasks, others' tasks); the kit has no delete, and a process kit may set its own
@@ -139,8 +141,8 @@ Reverse check:
 - R8: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R9: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R11: `tracker` skill.
-- R10: `tests/test_jira.py`; the release, the sandbox trial before it and the rename are
-  the run's release step, not a kit file.
+- R10: `tests/test_jira.py`; the release and the sandbox trial before it are the run's
+  steps, not a kit file.
 
 ## 4. Complexity budget
 
@@ -172,7 +174,8 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 | 2026-10-08 | 1.0.0 | `--epic-name` hint only when `fields.epic_name` is set; `--epic-name` in the `create` row | Same report, F3.1, F9.1 |
 | 2026-10-08 | 1.0.0 | `link` with no URL (no git remote): branch and hash in a comment | Trial artifact `trial-lado-session`, observation 1; same report, F3.3 |
 | 2026-10-08 | 1.0.0 | Settings errors on top-level keys name their line | Same report, F5.5 |
-| 2026-10-08 | 1.0.0 | R10: test-Jira trials stand for the real-Jira trial, sandbox trial repeated before release; repository renamed; no limits beyond R11 | Same report, F12.1, F12.4, F7.2; the human at the triage |
+| 2026-10-08 | 1.0.0 | R10: test-Jira trials stand for the real-Jira trial, sandbox trial repeated before release; no limits beyond R11 | Same report, F12.1, F7.2; the human at the triage |
+| 2026-10-08 | 1.0.0 | Repository not renamed; README keeps `kit-tracker-jira-server` | Same report, F12.4, withdrawn: the official marketplace's README names ladohq kits `kit-<name>`; the human at the release step |
 | 2026-10-08 | 1.0.0 | The first project's name and key removed from BLUEPRINT.md | Same report, F12.2 |
 | 2026-10-08 | 0.1.1 | `create` of an epic without Epic Name points to `--epic-name` (and drops "a Epic") | Trial on a test Jira Server 8.13.19, user without admin rights (session kit-tracker-jira-server, artifact `trial-test-server`): the exit 8 line advised `--field id=value` |
 | 2026-10-08 | 0.1.1 | `get` of a task without comments prints "Comments: none" | Same trial: "Comments: 0, the last 0 shown" |
