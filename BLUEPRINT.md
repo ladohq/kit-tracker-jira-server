@@ -147,3 +147,6 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-08 | 0.1.1 | `create` of an epic without Epic Name points to `--epic-name` (and drops "a Epic") | Trial on a test Jira Server 8.13.19, user without admin rights (session kit-tracker-jira-server, artifact `trial-test-server`): the exit 8 line advised `--field id=value` |
+| 2026-10-08 | 0.1.1 | `get` of a task without comments prints "Comments: none" | Same trial: "Comments: 0, the last 0 shown" |
+| 2026-10-08 | 0.1.1 | README and SKILL.md: Jira may ask for a CAPTCHA after the first failed login, not only after a few | Same trial: one wrong password for a throwaway user gave 403 `X-Authentication-Denied-Reason: CAPTCHA_CHALLENGE`, then refusal even with the right password; the script's exit 5 held |
