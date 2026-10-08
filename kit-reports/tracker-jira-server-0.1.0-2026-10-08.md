@@ -2,18 +2,19 @@
 
 - Date: 2026-10-08
 - Kit: `.` (the run's worktree of `create/tracker-jira-server`), path given
-- Commit: 548abd2
+- Commit: 444ed6a
 - Evaluated by: kit-builder critic (layers a and b)
-- Mode: re-evaluation against this report's previous version (commit eeb9073, kit at
-  b245615), `git diff b245615 -- kit.yaml README.md BLUEPRINT.md agents flows skills`. In
-  `create` all of the kit's text counts as changed, so the three passes covered the whole
-  kit and there is no separate full pass.
-- Passes: three independent sub-agents, each with the rubric, `lado-kit-format`, the kit
-  folder, this report's previous version and the diff. They started from BLUEPRINT.md +
-  SKILL.md (pass 1), from `jira.py` and its diff (pass 2), and from README.md + the raw
-  SKILL.md as a worker reads it (pass 3). All three marked every previous finding and ran
-  the cut-rule check; I checked the cut rules again myself. Of 2 one-pass findings, 2 were
-  kept as confirmed and 0 dropped.
+- Mode: re-evaluation against this report's previous version (commit cef230c, kit at
+  548abd2), `git diff cef230c -- kit.yaml README.md BLUEPRINT.md agents flows skills`.
+  This is the third round. The first round (eeb9073) was a full evaluation; the second
+  (cef230c) was three full passes over the whole kit, since in `create` all of the text is
+  new. This round reviews the fix commit 444ed6a.
+- Passes: three independent sub-agents, each with the rubric, the kit folder, this
+  report's previous version and the diff. They started from SKILL.md's changed sections
+  (pass 1), from `jira.py`'s diff and the `sent` semantics (pass 2), and from the README
+  and the raw SKILL.md with `--word-diff` (pass 3). Each covered all 12 criteria and the
+  known holes over the changed text and the places it points to. I checked the cut rules
+  myself as well. Of 2 one-pass findings, 2 were kept as confirmed and 0 dropped.
 
 Findings are candidates for the human to weigh, not a pass/fail grade.
 
@@ -24,9 +25,9 @@ Findings are candidates for the human to weigh, not a pass/fail grade.
 | a. `lado kits check` | OK; 0 warnings |
 | a. Budget | green; no yellow or red measure |
 | a. Flows | 0 drawn (the kit has no flows); `--compare` not applicable, see "Flows" |
-| b. Rubric | 5 findings (0 high, 3 medium, 2 low); 9 of 12 criteria without findings. All 12 previous findings RESOLVED |
-| Covers | re-evaluation of the changed text, which in `create` is the whole kit: 5 files (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); tests/test_jira.py run (44 tests, OK) |
-| Stop rule | not met: 0 high, 3 medium (F12.1, F3.1, F5.1). This is advice for the release gate, not a block |
+| b. Rubric | 2 findings (0 high, 0 medium, 2 low); 11 of 12 criteria without findings. All 5 previous findings RESOLVED |
+| Covers | re-evaluation of the changed text (README.md:66-70; SKILL.md "Writing in Jira" and "When the script fails"; `jira.py` `Jira.__init__`, `call`, `_network_failure`, `_http_failure`, `cmd_comment`, `cmd_link`), with what it points to; no full pass, since the three passes of the previous round were full; tests/test_jira.py run (46 tests, OK) |
+| Stop rule | holds: no high and no medium finding in the changed text |
 
 The count covers only what the row "Covers" names: a count of a re-evaluation and one of a
 full evaluation are not comparable.
@@ -72,20 +73,18 @@ error: kit.yaml: states must be a non-empty mapping   (exit status 2)
 
 ## Fix first
 
-1. Give a failed write with a 5xx the same "check before running it again" rule as exits
-   1 and 9, kept in one place. (F12.1)
-2. Stop `comment` and `link` errors from coming out as exit 8 "needs fields". (F3.1)
-3. Take the `|` examples out of the Markdown table, so agents do not copy `\|` into Jira.
-   (F5.1)
-4. Bring the README line on limits in line with R11. (F5.2)
+Nothing blocks. Both findings are low and concern the same `JIRA_URL` check; they can wait
+for the `improve` run after the trial:
+
+1. Parse `JIRA_URL` inside the `try` and give a malformed port its own message. (F3.1,
+   F3.2)
 
 ## Findings
 
 ### 1. Role boundaries
 
-Not applicable: no roles. The skill states its rights: "Reading is always fine. Create,
-transition, comment or link only when your role, your" (SKILL.md:25); "the user changes
-it, not you" (SKILL.md:100).
+Not applicable: no roles. The skill states its rights at SKILL.md:25-27 ("Reading is
+always fine. Create, transition, comment or link only when your role, your…"), unchanged.
 
 ### 2. Handoffs between steps
 
@@ -93,29 +92,31 @@ Not applicable: no flows.
 
 ### 3. Done and outcomes
 
-- **F3.1** [medium] `skills/tracker/jira.py:529`
-  > result = jira.call("POST", "issue/%s/comment" % urllib.parse.quote(args.key),
-  `cmd_comment` and `cmd_link` (`jira.py:537`, `jira.call("POST",
-  "issue/%s/remotelink" % urllib.parse.quote(args.key), body=body,`) pass no `sent`, so
-  any `errors` map Jira returns for them reaches `jira.py:316` (`if fields and not
-  set(fields) & set(sent):`) and comes out as exit 8 "Jira needs the fields". Two passes
-  confirmed it with a fake Jira: `{"url": "Invalid URL"}` gave `jira.py: Jira needs the
-  fields: url (Invalid URL)`, exit 8. A comment over Jira's length limit is another case.
-  Row 8 (SKILL.md:117) says "give them and run again", but neither command takes
-  `--field`, so the agent wastes a step or misreads the failure. Impacts across passes
-  were low, low and medium; medium is taken.
-  Fix: return exit 8 only when `sent` is non-empty (create, transition) and exit 11
-  otherwise, or pass `sent` from both commands. Passes: 3/3.
+- **F3.1** [low] `skills/tracker/jira.py:235`
+  > raise Failure(SETUP, "JIRA_URL must be Jira's https:// base address: the "
+  A malformed port (`https://jira.example.com:abc`) now gets the right code, 4, but still
+  this message, which says the URL must be `https://` although it already is. Run:
+  `jira.py: JIRA_URL must be Jira's https:// base address: the password is sent with
+  every request`, exit 4. The user looks for the wrong mistake; row 4 does point at
+  `JIRA_URL`.
+  Fix: a separate line when the port is malformed, e.g. "JIRA_URL has a malformed port".
+  Passes: 1/3, confirmed (the run above).
 
-- **F3.2** [low] `skills/tracker/jira.py:257`
-  > http.client.HTTPException) as error:
-  `http.client.InvalidURL` is a subclass of `HTTPException`, so a malformed `JIRA_URL`
-  port comes out as "not reachable, VPN?" instead of exit 4 "JIRA_URL is wrong". Run:
-  `JIRA_URL=https://jira.example.com:abc … jira.py get X-1` gives `jira.py: Jira is not
-  reachable (InvalidURL): are you on the VPN or the company network?` and exit 9. Both
-  codes send the case to the user, so only the hint is wrong.
-  Fix: in `Jira.__init__`, read `url.port` in a `try` and turn a `ValueError` into
-  `SETUP`. Passes: 1/3, confirmed (the run above).
+- **F3.2** [low] `skills/tracker/jira.py:227`
+  > url = urllib.parse.urlsplit(self.base)
+  `urlsplit` sits just above the new `try`, which only guards `url.port`. A malformed IPv6
+  host raises there: `JIRA_URL='https://[::1' … jira.py get X-1` ends with `ValueError:
+  Invalid IPv6 URL`, exit 1, instead of exit 4. Row 1 ("report its last line") still gets
+  it to the user, so only the code is off. Pass 2 of the previous round noted it as
+  covered by row 1. The line comes from 601bf60, so in `create` it counts as changed
+  text, not "Missed earlier".
+  Fix: move `urlsplit` into the same `try` and turn its `ValueError` into `SETUP`. Passes:
+  1/3, confirmed (the run above; `git blame -L227,227` gives 601bf60).
+
+Otherwise the exit codes match their rows. A field error on `comment` or `link` is exit 11
+(`jira.py:324`, `if fields and sent is not None and not set(fields) & set(sent):`;
+`sent=None` at `:538` and `:546`). A malformed port is exit 4. A write that fails with a
+5xx carries the "may have been applied" hint (`jira.py:323`).
 
 ### 4. Independent verification
 
@@ -124,141 +125,85 @@ R10).
 
 ### 5. Contradictions
 
-- **F5.1** [medium] `skills/tracker/SKILL.md:72`
-  > | table | `\|\|Head\|\|Head\|\|` once, then `\|cell\|cell\|` per row |
-  The `\|` is Markdown's escape for a pipe inside a table cell. Agents read SKILL.md as
-  raw text, so the "Write" column tells them to write `\|\|Head\|\|`. In Jira wiki markup
-  a backslash escapes the next character, so the table would show up as literal pipes in
-  the user's name. The link row has the same problem (SKILL.md:73: `` | link |
-  `[text\|https://...]`, a task by its bare key `KEY-1` | ``); it was already there at
-  b245615 and was missed then. Whether an agent drops the backslashes varies from run to
-  run.
-  Fix: put the table and link examples in a fenced block or a list below the table
-  (`||Head||Head||`, `|cell|cell|`, `[text|https://...]`), where `|` needs no escape.
-  Passes: 1/3, confirmed (`grep -nF '\|' skills/tracker/SKILL.md` gives only lines 72 and
-  73, both in the "Write" column).
-
-- **F5.2** [low] `README.md:68`
-  > script adds no mark. The kit sets no limits on what agents do in Jira; a process kit
-  Since R11, SKILL.md:25 sets a default write scope ("Reading is always fine. Create,
-  transition, comment or link only when your role, your…"). A process-kit author who
-  reads only the README will expect agents to write freely. The line was not changed, but
-  the change made it false.
-  Fix: "By default agents only read; they create, transition, comment or link when their
-  role, their step or the human asks (SKILL.md). A process kit may allow more." Passes:
-  3/3.
+None. README.md:68-70 now matches R11 and SKILL.md:25-27: "By default agents only read;
+they create, transition, comment or link when their role, their step or the human asks".
+The markup examples are in a fenced block (SKILL.md:78-82), and SKILL.md has no `\|`
+left.
 
 ### 6. Duplication
 
-The "check before running a write again" rule is written twice, in rows 1 and 9; it is
-part of F12.1 and its fix. The settings example now lives only in SKILL.md, and the README
-points to it (README.md:60-62).
+The "check before running a write again" rule is now in one place, SKILL.md:130-131
+("After exit 1, 9 or 12 on a write, `get` or `search` before running it again: it may
+have been applied."). In the script it is one constant, `APPLIED` (`jira.py:38`).
 
 ### 7. When to call the human
 
-Handled: "To **report** a failure: as a worker, send the supervisor that line and the
-command with `send_message` and wait for its answer; as the lead, tell the human."
-(SKILL.md:104-106). Row 5 adds the stop rule for every agent. LADO's skills are visible
-to every agent of the session (`lado/kits.py`, the check behind `skill "…" is not visible
-to agent`), so the lead can read row 5 too.
+Unchanged and handled: SKILL.md:111-113 sends a worker's report to the supervisor with
+`send_message`, and the lead tells the human.
 
 ### 8. Loops on a later visit
 
-Not applicable: no flows. Repeats are bounded: "it never retries" (SKILL.md:104), "fix the
-request once" (row 11).
+Not applicable: no flows.
 
 ### 9. Concision and why
 
-No findings. The new lines carry their reasons, for example `jira.py:226` "# The password
-goes in every request: only over TLS, or to this machine (tests)." and row 5 "one more try
-can lock the login".
+No findings. The new code comment carries its reason: `jira.py:321` "# A proxy's 502/504
+or a failing post-function can follow an applied write."
 
 ### 10. Skill descriptions
 
-Unchanged and fine: it says what the skill holds and when to use it ("Use whenever your
-work touches a task in the tracker", SKILL.md:6). There are no dependency skills.
+Unchanged; fine.
 
 ### 11. Provider neutrality
 
-`${SKILL_DIR}` with a neutral fallback (SKILL.md:19). `send_message` is LADO's own tool.
-No CLI tool names, and no absolute or home paths in the skill or the script.
+Nothing CLI-specific was added. The path `skills/tracker/SKILL.md` appears only in the
+human-facing README.
 
 ### 12. Safety and scope
 
-- **F12.1** [medium] `skills/tracker/SKILL.md:121`
-  > | 12 | Jira itself failed (5xx) | report it; whether your step can go on without the tracker is your step's decision |
-  A 5xx on a POST can come after Jira applied the write: a 502 or 504 from a proxy, or a
-  500 from a post-function after the task was created. Rows 1 and 9 tell the agent to
-  check with `get` or `search` before running a write again; row 12 does not, and the
-  script's line (`jira.py:315`, `return Failure(SERVER_ERROR, "Jira failed (%d)%s" %
-  (code, detail))`) has no "may have been applied" hint as exit 9 has. Pass 1 confirmed it
-  with a fake Jira answering 504: `echo hi | jira.py comment X-1 -` gave `jira.py: Jira
-  failed (504)`, exit 12. A rerun after "Jira is fixed" can duplicate a task or a comment
-  in the user's name. The rule is also written twice already, in rows 1 and 9.
-  Fix: one sentence under the table, "After exit 1, 9 or 12 on a write, `get` or `search`
-  before running it again: it may have been applied", dropped from rows 1 and 9; and the
-  same hint on the 5xx line for any method other than GET. Passes: 3/3.
-
-TLS, the mark and the write scope otherwise hold: `jira.py:227-230` accepts only
-`https://` (or `http://` to this machine, for the tests); the mark is applied after
-`--field` (`jira.py:447-450`); R11 is at SKILL.md:25-27.
+No findings. The write scope is stated in SKILL.md and the README, and they agree. A
+failed write with exit 1, 9 or 12 is checked before it runs again.
 
 ## Known holes
 
 | Known hole | Finding, or how the kit handles it |
 |---|---|
-| 1. Red check sent back with no environment cause considered | Handled. A wrong `JIRA_URL`, a redirect or an answer that is not Jira's is exit 4, "the user fixes their shell profile" (SKILL.md:113), and a crash is exit 1. Left: F3.2 (a malformed port shown as unreachable, still an environment code). |
-| 2. Work outside a flow, merge without a gate | No git work. Jira writes are scoped by SKILL.md:25-27 (R11); the README contradicts it (F5.2). |
-| 3. Path outside the run's worktree | Handled: `find_config` stops at the first `.git` (`jira.py:177`, `if os.path.exists(os.path.join(here, ".git")):`), including a worktree's `.git` file. |
+| 1. Red check sent back with no environment cause considered | Handled. A malformed port is now exit 4 (an environment fault), not "VPN?". Left: F3.1 (the message) and F3.2 (IPv6, exit 1). |
+| 2. Work outside a flow, merge without a gate | No git work. Jira writes are scoped by SKILL.md:25-27 (R11), and README.md:68-70 now agrees. |
+| 3. Path outside the run's worktree | Unchanged, handled: `find_config` stops at the first `.git`. |
 | 4. Verdict without a severity threshold | Not applicable: no reviewer. |
-| 5. Dependency skill that writes or asks where its role must not | Handled: SKILL.md:104-106 sends a worker's report to the supervisor with `send_message`; only the lead tells the human. |
+| 5. Dependency skill that writes or asks where its role must not | Unchanged, handled: SKILL.md:111-113. |
 
 ## Not traced
 
-Nothing. R11 is traced to the `tracker` skill (the traceability row and the reverse
-check). Every element is named by a requirement, every budget measure is green, and the
-blueprint has no flow skeletons because the kit has no flows (R2). The R6 note on
-localized names is in README.md:55-58. The R7 markup coverage is in SKILL.md:65-77, with
-F5.1 to fix. Cosmetic: R11 is listed between R9 and R10.
+Nothing. BLUEPRINT.md did not change this round. Every element is named by a requirement,
+every budget measure is green, and the blueprint has no flow skeletons because the kit has
+no flows (R2). Cosmetic and left by the author: R11 is listed between R9 and R10.
 
 ## Previous findings
 
 | Id | Status | Evidence |
 |---|---|---|
-| F3.1 exit 8 for refused values | RESOLVED for create and transition | `jira.py:316` `if fields and not set(fields) & set(sent):` → exit 8; otherwise `"Jira refused the values: %s"` → exit 11. Row 11 names "a refused field value". Comment and link: new F3.1 |
-| F3.2 wrong `JIRA_URL` as exit 7/11 | RESOLVED | A redirect, a non-JSON answer and a non-Jira 404 give `SETUP` (exit 4), `jira.py:304-309` and `:264`. SKILL.md:113: "`JIRA_URL` is wrong (not `https://`, a redirect, not Jira's answer)" |
-| F3.3 traceback, exit 1 | RESOLVED | The scheme check is at `jira.py:227-230`, and `HTTPException` is caught at `:257`. Row "1 \| the script crashed" (SKILL.md:110). `JIRA_URL=jira.example.com` now gives exit 4 |
-| F5.1 "try later", "ask the admin" | RESOLVED | `jira.py:315` `"Jira failed (%d)%s"`, `:311` `"no access (403)%s"`. Row 12: "whether your step can go on without the tracker is your step's decision" |
-| F6.1 settings example twice | RESOLVED | The README has a minimal example plus a pointer (README.md:60-62); SKILL.md:95 has the `field` hint |
-| F7.1 "tell the user" for workers | RESOLVED | SKILL.md:104-106; row 5 "The lead tells every agent to stop using Jira until the human says it is fixed" |
-| F9.1 dead parameter | RESOLVED | `jira.py:466` `def _transitions(jira, key):` |
-| F12.1 no write scope | RESOLVED | SKILL.md:25-27 (R11) |
-| F12.2 `http://` accepted | RESOLVED | `jira.py:227-230`; `http://jira.example.com` gives exit 4. Loopback `http` is kept for the tests |
-| F12.3 timed-out write rerun | RESOLVED for exit 9 | `jira.py:273` "the change may have been applied: check with get or search…"; row 9. The 5xx case: new F12.1 |
-| F12.4 `--field description` drops the mark | RESOLVED | `jira.py:447-450`: `mark()` runs after `--field` is merged |
-| F12.5 keychain stalls the profile | RESOLVED | README.md:34-36 |
-| Question 1 (write scope) | Answered: R11, which the human agreed at the second design visit | BLUEPRINT R11 |
-| Question 2 (reporter in createmeta) | Handled in code | `jira.py:453-456` skips `reporter` in the pre-check; still to be seen on CRM3 at the trial |
+| F12.1 5xx after a write | RESOLVED | SKILL.md:130-131, once for exits 1, 9 and 12; `jira.py:323` adds `APPLIED` for any method other than GET. A fake Jira answering 504 to `comment` gave `Jira failed (504)…; the change may have been applied: check with get or search before running it again`, exit 12; a GET gave no hint |
+| F3.1 comment/link field errors as exit 8 | RESOLVED | `sent=None` (`jira.py:538`, `:546`) and `:324`. A fake Jira gave `link` → `Jira refused the values: url (Invalid URL)`, exit 11; `comment` → exit 11 |
+| F3.2 malformed port as exit 9 | RESOLVED | `jira.py:228-231` reads `url.port` in a `try`; `:abc` and `:99999` give exit 4. Message: new F3.1 |
+| F5.1 `\|` in the markup table | RESOLVED | SKILL.md:72 `\| table, link \| see below the table \|`; fenced examples at :78-82; no `\|` in SKILL.md |
+| F5.2 README "sets no limits" | RESOLVED | README.md:68-70 |
 
 ## Cut rules
 
 | Removed rule (file:line at base) | Where it is now |
 |---|---|
-| Row 5 "after a CAPTCHA they log in once in a browser" (SKILL.md:103) | The script's line, `jira.py:296-298` "the user logs in to Jira in a browser once (not retried)", which the agent reports; README.md:39-40 |
-| Row 9 "and wait" (SKILL.md:107) | SKILL.md:105-106 "and wait for its answer" |
-| Row 6 "do not look for a way around" (SKILL.md:104) | Row 6 "look for no way around" (SKILL.md:115) |
-| Row 12 "go on without the tracker" (SKILL.md:110) | Removed on purpose (F5.1); row 12 leaves it to the step |
-| Script hints "try later", "ask the project's Jira admin", "then run again" (jira.py:300, 291, 284) | Removed on purpose (F5.1); the table's rows 12, 6 and 5 hold what to do |
-| README "The file is a strict subset of YAML … anything else stops the script with the line and what is wrong" (README.md:57-58) | SKILL.md:83-84 (the format) and row 3 "invalid" |
-| README full settings example, `issue_types`/`labels`/`fields` (README.md:46-54) | SKILL.md "Project settings"; README.md:60-62 points there |
-| `create` without a description still gets the mark (jira.py:425-426) | `jira.py:448-450`: `mark(fields.get("description") or "")` gives the mark alone when `LADO_AGENT` is set |
+| Row 1 "repeat no write before you checked with `get` or `search`" (SKILL.md:110) | SKILL.md:130-131, for exit 1 on a write |
+| Row 9 "After a write, `get` or `search` before running it again: it may have been applied" (SKILL.md:118) | SKILL.md:130-131, word for word, now also for exits 1 and 12 |
+| Link row "a task by its bare key `KEY-1`" (SKILL.md:73) | SKILL.md:76 "a task's bare key `KEY-1` links to it" |
+| README "The kit sets no limits on what agents do in Jira" (README.md:68) | Replaced on purpose by the R11 scope (F5.2) |
 
 No rule lost.
 
 ## Missed earlier
 
-None. In `create` all of the text counts as changed, so the `[text\|…]` link row missed
-by the first round is a finding here (F5.1), not listed under this heading.
+None.
 
 ## Found on the way
 
