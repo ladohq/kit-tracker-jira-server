@@ -45,9 +45,11 @@ with no remote has no such page, so give the branch and the commit hash in a `co
   `search 'project = {project} AND assignee = currentUser() AND resolution = Unresolved
   ORDER BY updated DESC'`. A full page ends with the `--start` of the next one.
 - **create**: `--type` is an issue type of the project or a word of `issue_types` in the
-  settings ("bug"). An epic also needs `--epic-name`. When the project requires more
-  fields, the script names them (exit 8); give each with `--field id=value`, a value
-  starting with `{` or `[` as JSON: `--field 'priority={"name": "High"}'`.
+  settings ("bug"). An epic also needs its Epic Name: `--epic-name` when the settings
+  name `fields.epic_name`, otherwise the `--field` the script names (exit 8). When the
+  project requires more fields, the script names them (exit 8); give each with
+  `--field id=value`, a value starting with `{` or `[` as JSON:
+  `--field 'priority={"name": "High"}'`.
 - **transition**: the target is a transition's name or id, a target status, or a word of
   `statuses` in the settings ("review"). With no target it lists the transitions open to
   you now; run that first when you are unsure. A screen that asks for fields is named
@@ -131,5 +133,5 @@ the tracker; otherwise go on with it. Act on the exit code:
 | 11 | Jira refused the request (bad JQL, a refused field value, unknown type, transition not open) | read the line, fix the request once; if it still fails, report it |
 | 12 | Jira itself failed (5xx), or it is rate limiting requests (429) | report it |
 
-After exit 1, 9 or 12 on a write, once Jira answers, `get` or `search` before running it
-again: it may have been applied. Whatever the code, never guess the task's state from a failed run: say what failed.
+After exit 1, 9 or a 5xx exit 12 on a write, once you are told Jira answers again, `get`
+or `search` before running it again: it may have been applied. Whatever the code, never guess the task's state from a failed run: say what failed.

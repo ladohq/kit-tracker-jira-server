@@ -197,6 +197,8 @@ class ConfigTest(unittest.TestCase):
             self.parse("project: A\n\nlabels: lado\n")
         with self.assertRaisesRegex(ValueError, "line 2: 'statuses' must be a map"):
             self.parse("project: A\nstatuses: Done\n")
+        with self.assertRaisesRegex(ValueError, "line 4: 'statuses.done' must be one plain"):
+            self.parse("project: A\nstatuses:\n  review: Review\n  done: [x]\n")
         with self.assertRaisesRegex(ValueError, "tracker.yaml: 'project'.* is required"):
             self.parse("labels: [a]\n")
 
@@ -472,14 +474,14 @@ class ErrorsTest(JiraTestCase):
         self.jira.route("GET", "issue/TEST-1", None, status=401,
                         headers={"X-Seraph-LoginReason": "AUTHENTICATED_FAILED"})
         err = self.assertFails(jira.CREDENTIALS_REFUSED, "refused the credentials (401)")
-        self.assertIn("tell every agent to stop using Jira", err)
+        self.assertIn("the lead tells every agent to stop using Jira", err)
         self.assertEqual(len(self.jira.requests), 1)
 
     def test_captcha(self):
         self.jira.route("GET", "issue/TEST-1", None, status=403, headers={
             "X-Authentication-Denied-Reason": "CAPTCHA_CHALLENGE; login-url=/login.jsp"})
         err = self.assertFails(jira.CREDENTIALS_REFUSED, "logs in to Jira in a browser")
-        self.assertIn("tell every agent to stop using Jira", err)
+        self.assertIn("the lead tells every agent to stop using Jira", err)
         self.assertEqual(len(self.jira.requests), 1)
 
     def test_bad_jql(self):
@@ -570,7 +572,8 @@ class ErrorsTest(JiraTestCase):
 
     def test_unreachable(self):
         self.jira.close()
-        self.assertFails(jira.UNREACHABLE, "VPN")
+        err = self.assertFails(jira.UNREACHABLE, "VPN")
+        self.assertIn("send Jira nothing more until you are told it answers again", err)
 
     def test_timeout(self):
         event = threading.Event()
@@ -578,7 +581,9 @@ class ErrorsTest(JiraTestCase):
         handler = self.jira.server.RequestHandlerClass
         handler.do_GET = lambda request: event.wait(5)
         with mock.patch.object(jira, "TIMEOUT", 0.3):
-            self.assertFails(jira.UNREACHABLE, "did not answer")
+            err = self.assertFails(jira.UNREACHABLE, "did not answer")
+        self.assertIn("send Jira nothing more", err)
+        self.assertNotIn("may have been applied", err)
 
     def test_invalid_config(self):
         self.write_config("project: TEST\nlabels:\n  - lado\n")

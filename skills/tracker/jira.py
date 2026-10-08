@@ -37,7 +37,9 @@ TIMEOUT = 30
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 APPLIED = ("; the change may have been applied: once Jira answers again, check with get "
            "or search before running it again")
-STOP_ALL = "; tell every agent to stop using Jira until the human says it is fixed"
+STOP_ALL = ("; the lead tells every agent to stop using Jira until the human says it is "
+            "fixed")
+WAIT = "; send Jira nothing more until you are told it answers again"
 NOT_JIRA = ("the answer is not Jira's: JIRA_URL is not Jira's base address (with its "
             "context path, if Jira has one)")
 CONFIG_PATH = os.path.join(".lado", "tracker.yaml")
@@ -145,6 +147,7 @@ def parse_config(text, path):
         if key in data[section]:
             raise ValueError(where + "'%s' is given twice in '%s'" % (key, section))
         data[section][key] = _value(rest, where)
+        lines[section + "." + key] = number
     return _validate(data, path, lines)
 
 
@@ -163,7 +166,8 @@ def _validate(data, path, lines):
             raise ValueError(where(key) + "'%s' must be a map of 'name: value' lines" % key)
         for name, item in value.items():
             if not isinstance(item, str) or not item:
-                raise ValueError(where(key) + "'%s.%s' must be one plain value" % (key, name))
+                raise ValueError(where(key + "." + name) + "'%s.%s' must be one plain value"
+                                 % (key, name))
     for key in CONFIG_LISTS:
         value = data.setdefault(key, [])
         if isinstance(value, str):
@@ -284,7 +288,7 @@ class Jira:
             return Failure(TLS, "TLS failed (%s): if Jira's certificate is from a corporate "
                                 "CA, set SSL_CERT_FILE to a file with that CA" % why)
         # A write that got no answer may still have been applied.
-        after = APPLIED if method != "GET" else ""
+        after = WAIT + (APPLIED if method != "GET" else "")
         if isinstance(reason, (socket.timeout, TimeoutError)):
             return Failure(UNREACHABLE, "Jira did not answer in %d seconds: are you on the "
                                         "VPN or the company network?%s" % (TIMEOUT, after))

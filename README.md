@@ -1,4 +1,4 @@
-# kit-tracker-jira-server
+# lado-kit-tracker-jira-server
 
 A LADO kit for Jira Server and Data Center 8.4 or newer. It gives the roles of any process kit a
 skill named `tracker` that finds, reads, creates, moves and comments on tasks and links a
@@ -9,7 +9,7 @@ The kit has no agents and no flows: it adds the skill to a session led by a proc
 A process kit's roles say "use the tracker skill"; a role that cannot work without it
 lists `skills: [tracker]`, so a session without a tracker kit refuses to start. A lead
 with its own `skills:` list adds `tracker` to it if it should read the tracker; the
-script's credentials error (exit 5) asks the lead to tell every agent to stop using Jira.
+script's credentials error (exit 5) says the lead tells every agent to stop using Jira.
 
 ## Install and start
 
@@ -40,8 +40,7 @@ read the item ("Always Allow") before the first session.
 
 Check the login once before a session, from the project's repository, without typing the
 password: `python3 <kit>/skills/tracker/jira.py search 'project = ABC' --max 1`, where
-`<kit>` is the folder `lado kits add` installed the kit to, or
-`curl -u "$JIRA_USER:$JIRA_PASSWORD" "$JIRA_URL/rest/api/2/myself"`.
+`<kit>` is the kit's folder (`lado kits show tracker-jira-server` prints it).
 A wrong password is never retried, since after failed logins (on some servers after the first) Jira
 asks for a CAPTCHA and refuses REST logins until you log in in a browser. If Jira's certificate is from a corporate CA,
 point `SSL_CERT_FILE` at a file with that CA; verification is never turned off. The script
