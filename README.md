@@ -31,31 +31,30 @@ export JIRA_USER=your.login
 export JIRA_PASSWORD="$(security find-generic-password -s jira -a "$JIRA_USER" -w)"
 ```
 
+LADO reads the profile through the login shell with a time limit, so a keychain prompt
+stalls every agent's start: run the line once in a new terminal and allow `security` to
+read the item ("Always Allow") before the first session.
+
 Check the login once by hand before a session: `curl -u "$JIRA_USER" "$JIRA_URL/rest/api/2/myself"`.
 A wrong password is never retried, since after a few failed logins Jira asks for a CAPTCHA and refuses
 REST logins until you log in in a browser. If Jira's certificate is from a corporate CA,
-point `SSL_CERT_FILE` at a file with that CA; verification is never turned off.
+point `SSL_CERT_FILE` at a file with that CA; verification is never turned off. The script
+refuses a `JIRA_URL` that is not `https://`, since the password goes with every request.
 
 ## Project settings: `.lado/tracker.yaml`
 
 Each project commits its settings to its own repository, so every worktree has them. Only
-`project` is required; add the rest when the project needs them:
+`project` is required:
 
 ```yaml
 project: ABC                  # the Jira project key
-issue_types:                  # a word of the process -> the project's issue type
-  bug: Bug
 statuses:                     # a word of the process -> the board's status
   review: Code Review
-  done: Done
-labels: [lado]                # added to every task the agents create
-fields:                       # custom field ids, from $JIRA_URL/rest/api/2/field
-  epic_link: customfield_10100
-  epic_name: customfield_10101
 ```
 
-The file is a strict subset of YAML (`key: value`, one level of nesting, `[a, b]` lists,
-`#` comments); anything else stops the script with the line and what is wrong.
+The other sections (issue types, labels, custom field ids such as Epic Link, which
+`$JIRA_URL/rest/api/2/field` lists) and the format, a strict subset of YAML, are in
+[`skills/tracker/SKILL.md`](skills/tracker/SKILL.md).
 
 ## What agents write
 

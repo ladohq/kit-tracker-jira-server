@@ -9,6 +9,7 @@ the repository root. Python standard library only.
 
 import argparse
 import base64
+import http.client
 import json
 import os
 import socket
@@ -22,7 +23,7 @@ import urllib.request
 OK = 0
 USAGE = 2
 CONFIG = 3
-CREDENTIALS_UNSET = 4
+SETUP = 4
 CREDENTIALS_REFUSED = 5
 NO_ACCESS = 6
 NOT_FOUND = 7
@@ -33,6 +34,9 @@ REFUSED = 11
 SERVER_ERROR = 12
 
 TIMEOUT = 30
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+NOT_JIRA = ("the answer is not Jira's: JIRA_URL is not Jira's base address (with its "
+            "context path, if Jira has one)")
 CONFIG_PATH = os.path.join(".lado", "tracker.yaml")
 CONFIG_MAPS = ("issue_types", "statuses", "fields")
 CONFIG_LISTS = ("labels",)
@@ -215,10 +219,15 @@ class Jira:
         missing = [name for name in ("JIRA_URL", "JIRA_USER", "JIRA_PASSWORD")
                    if not os.environ.get(name)]
         if missing:
-            raise Failure(CREDENTIALS_UNSET, "%s not set: the user sets it in their login "
-                                             "shell's profile, then starts a new session"
-                          % ", ".join(missing))
+            raise Failure(SETUP, "%s not set: the user sets it in their login shell's "
+                                 "profile, then starts a new session" % ", ".join(missing))
         self.base = os.environ["JIRA_URL"].rstrip("/")
+        url = urllib.parse.urlsplit(self.base)
+        # The password goes in every request: only over TLS, or to this machine (tests).
+        if not url.hostname or not (url.scheme == "https" or (
+                url.scheme == "http" and url.hostname in LOOPBACK)):
+            raise Failure(SETUP, "JIRA_URL must be Jira's https:// base address: the "
+                                 "password is sent with every request")
         login = "%s:%s" % (os.environ["JIRA_USER"], os.environ["JIRA_PASSWORD"])
         self.auth = "Basic " + base64.b64encode(login.encode("utf-8")).decode("ascii")
         cafile = os.environ.get("SSL_CERT_FILE") or None
@@ -226,7 +235,8 @@ class Jira:
         self.opener = urllib.request.build_opener(
             _NoRedirect, urllib.request.HTTPSHandler(context=context))
 
-    def call(self, method, path, query=None, body=None, missing=None):
+    def call(self, method, path, query=None, body=None, missing=None, sent=()):
+        """`sent`: the fields the request sets, to tell refused values from missing ones."""
         url = self.base + "/rest/api/2/" + path
         if query:
             url += "?" + urllib.parse.urlencode(query)
@@ -240,70 +250,76 @@ class Jira:
             with self.opener.open(request, timeout=TIMEOUT) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
-            raise self._http_failure(error, missing)
+            raise self._http_failure(error, missing, sent)
         except urllib.error.URLError as error:
-            raise self._network_failure(error.reason)
-        except (socket.timeout, TimeoutError, ConnectionError, ssl.SSLError) as error:
-            raise self._network_failure(error)
+            raise self._network_failure(error.reason, method)
+        except (socket.timeout, TimeoutError, ConnectionError, ssl.SSLError,
+                http.client.HTTPException) as error:
+            raise self._network_failure(error, method)
         if not raw:
             return None
         try:
             return json.loads(raw.decode("utf-8"))
         except ValueError:
-            raise Failure(REFUSED, "Jira answered with something that is not JSON: is "
-                                   "JIRA_URL the base address of Jira?")
+            raise Failure(SETUP, NOT_JIRA)
 
     @staticmethod
-    def _network_failure(reason):
+    def _network_failure(reason, method):
         if isinstance(reason, ssl.SSLError):
             why = getattr(reason, "reason", None) or type(reason).__name__
             return Failure(TLS, "TLS failed (%s): if Jira's certificate is from a corporate "
                                 "CA, set SSL_CERT_FILE to a file with that CA" % why)
+        # A write that got no answer may still have been applied.
+        after = "; the change may have been applied: check with get or search before " \
+                "running it again" if method != "GET" else ""
         if isinstance(reason, (socket.timeout, TimeoutError)):
             return Failure(UNREACHABLE, "Jira did not answer in %d seconds: are you on the "
-                                        "VPN or the company network?" % TIMEOUT)
+                                        "VPN or the company network?%s" % (TIMEOUT, after))
         return Failure(UNREACHABLE, "Jira is not reachable (%s): are you on the VPN or the "
-                                    "company network?" % type(reason).__name__)
+                                    "company network?%s" % (type(reason).__name__, after))
 
     @staticmethod
-    def _http_failure(error, missing):
+    def _http_failure(error, missing, sent):
         code = error.code
         denied = error.headers.get("X-Authentication-Denied-Reason")
         try:
             payload = json.loads(error.read().decode("utf-8"))
         except ValueError:
-            payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
+            payload = None
+        is_jira = isinstance(payload, dict)
+        payload = payload if is_jira else {}
         messages = list(payload.get("errorMessages") or [])
         fields = payload.get("errors") or {}
         detail = "; ".join(messages + ["%s: %s" % item for item in sorted(fields.items())])
+        detail = ": " + detail if detail else ""
         if denied or (code == 403 and "captcha" in detail.lower()):
             return Failure(CREDENTIALS_REFUSED, "Jira refused the login and wants a CAPTCHA "
-                                                "after failed logins: log in to Jira in a "
-                                                "browser, then run again (not retried)")
+                                                "after failed logins: the user logs in to "
+                                                "Jira in a browser once (not retried)")
         if code == 401:
             return Failure(CREDENTIALS_REFUSED, "Jira refused the credentials (401): check "
                                                 "JIRA_USER and JIRA_PASSWORD; not retried, "
                                                 "since more failed logins make Jira ask "
                                                 "for a CAPTCHA")
-        if code == 403:
-            return Failure(NO_ACCESS, "no access (403)%s: ask the project's Jira admin for "
-                                      "the permission" % (": " + detail if detail else ""))
-        if code == 404:
-            return Failure(NOT_FOUND, missing or "not found (404)%s"
-                           % (": " + detail if detail else ""))
         if 300 <= code < 400:
-            return Failure(REFUSED, "Jira answered with a redirect (%d), not followed: set "
-                                    "JIRA_URL to Jira's base address" % code)
+            return Failure(SETUP, "Jira answered with a redirect (%d), not followed: "
+                                  "JIRA_URL is not Jira's base address, or a login page "
+                                  "(SSO) is in front of it" % code)
+        if code == 404 and not is_jira:
+            return Failure(SETUP, NOT_JIRA)
+        if code == 403:
+            return Failure(NO_ACCESS, "no access (403)%s" % detail)
+        if code == 404:
+            return Failure(NOT_FOUND, missing or "not found (404)%s" % detail)
         if code >= 500:
-            return Failure(SERVER_ERROR, "Jira failed (%d)%s: try later or tell the user"
-                           % (code, ": " + detail if detail else ""))
+            return Failure(SERVER_ERROR, "Jira failed (%d)%s" % (code, detail))
+        if fields and not set(fields) & set(sent):
+            names = ", ".join("%s (%s)" % item for item in sorted(fields.items()))
+            return Failure(FIELDS_REQUIRED, "Jira needs the fields: %s" % names)
         if fields:
             names = ", ".join("%s (%s)" % item for item in sorted(fields.items()))
-            return Failure(FIELDS_REQUIRED, "Jira refused the fields: %s" % names)
-        return Failure(REFUSED, "Jira refused the request (%d)%s"
-                       % (code, ": " + detail if detail else ""))
+            return Failure(REFUSED, "Jira refused the values: %s" % names)
+        return Failure(REFUSED, "Jira refused the request (%d)%s" % (code, detail))
 
 
 # --- commands --------------------------------------------------------------------------
@@ -421,9 +437,7 @@ def cmd_create(jira, args):
     fields = {"project": {"key": project}, "issuetype": {"id": type_id},
               "summary": args.summary}
     if args.description is not None:
-        fields["description"] = mark(read_text(args.description))
-    elif os.environ.get("LADO_AGENT", "").strip():
-        fields["description"] = mark("")
+        fields["description"] = read_text(args.description)
     if config["labels"]:
         fields["labels"] = list(config["labels"])
     if args.epic:
@@ -431,26 +445,27 @@ def cmd_create(jira, args):
     if args.epic_name:
         fields[setting(config, "fields", "epic_name", "--epic-name")] = args.epic_name
     fields.update(parse_fields(args.field))
+    description = mark(fields.get("description") or "")
+    if description:
+        fields["description"] = description
     meta = (jira.call("GET", "%s/%s" % (base, type_id), {"maxResults": 500})
             or {}).get("values") or []
+    # Jira Server may list the reporter as required, yet fills it with the caller.
     lacking = ["%s (%s)" % (f.get("name"), f.get("fieldId")) for f in meta
                if f.get("required") and not f.get("hasDefaultValue")
-               and f.get("fieldId") not in fields]
+               and f.get("fieldId") not in fields and f.get("fieldId") != "reporter"]
     if lacking:
         raise Failure(FIELDS_REQUIRED, "creating a %s in %s needs: %s; give each with "
                                        "--field id=value" % (type_name, project,
                                                              ", ".join(lacking)))
-    created = jira.call("POST", "issue", body={"fields": fields})
+    created = jira.call("POST", "issue", body={"fields": fields}, sent=fields)
     print("%s created" % created.get("key"))
     return OK
 
 
-def _transitions(jira, key, transition_id=None):
-    query = {"expand": "transitions.fields"}
-    if transition_id:
-        query["transitionId"] = transition_id
-    result = jira.call("GET", "issue/%s/transitions" % urllib.parse.quote(key), query,
-                       missing=missing_issue(key))
+def _transitions(jira, key):
+    result = jira.call("GET", "issue/%s/transitions" % urllib.parse.quote(key),
+                       {"expand": "transitions.fields"}, missing=missing_issue(key))
     return (result or {}).get("transitions") or []
 
 
@@ -502,8 +517,9 @@ def cmd_transition(jira, args):
         body["fields"] = fields
     if args.comment is not None:
         body["update"] = {"comment": [{"add": {"body": mark(read_text(args.comment))}}]}
+    sent = list(fields) + (["comment"] if args.comment is not None else [])
     jira.call("POST", "issue/%s/transitions" % urllib.parse.quote(args.key), body=body,
-              missing=missing_issue(args.key))
+              missing=missing_issue(args.key), sent=sent)
     print("%s: %s -> %s" % (args.key, current, _name(transition.get("to"))))
     return OK
 

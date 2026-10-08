@@ -42,6 +42,13 @@ fields:
 """
 
 
+class Raw:
+    """A payload sent as it is; `length` claims a longer body that never comes."""
+
+    def __init__(self, data, length=None):
+        self.data, self.length = data, length
+
+
 class FakeJira:
     """Answers each (method, path) from `routes`, records every request."""
 
@@ -68,12 +75,14 @@ class FakeJira:
                     status, headers, payload = 404, {}, {"errorMessages": ["no route"]}
                 else:
                     status, headers, payload = route
-                data = json.dumps(payload).encode() if payload is not None else b""
+                raw = payload if isinstance(payload, Raw) else Raw(
+                    json.dumps(payload).encode() if payload is not None else b"")
+                data = raw.data
                 self.send_response(status)
                 for name, value in headers.items():
                     self.send_header(name, value)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Length", str(raw.length or len(data)))
                 self.end_headers()
                 self.wfile.write(data)
 
@@ -262,6 +271,20 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(fields["labels"], ["lado", "agent made"])
         self.assertEqual(fields["customfield_10100"], "TEST-9")
 
+    def test_marked_description_through_field(self):
+        self.route_createmeta()
+        code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "x",
+                                     "--field", "description=by field")
+        self.assertEqual(code, 0, err)
+        fields = self.sent("POST", "issue")[0]["body"]["fields"]
+        self.assertEqual(fields["description"], "[LADO: developer]\n\nby field")
+
+    def test_reporter_is_left_to_jira(self):
+        self.route_createmeta(required=["reporter"])
+        code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "x")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("reporter", self.sent("POST", "issue")[0]["body"]["fields"])
+
     def test_create_names_required_fields(self):
         self.route_createmeta(required=["components"])
         code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "Crash")
@@ -400,7 +423,7 @@ class ErrorsTest(JiraTestCase):
 
     def test_unset_credentials_are_named(self):
         with mock.patch.dict(os.environ, {"JIRA_PASSWORD": "", "JIRA_URL": ""}):
-            err = self.assertFails(jira.CREDENTIALS_UNSET, "JIRA_URL, JIRA_PASSWORD not set")
+            err = self.assertFails(jira.SETUP, "JIRA_URL, JIRA_PASSWORD not set")
         self.assertEqual(self.jira.requests, [])
 
     def test_refused_credentials_are_not_retried(self):
@@ -412,7 +435,7 @@ class ErrorsTest(JiraTestCase):
     def test_captcha(self):
         self.jira.route("GET", "issue/TEST-1", None, status=403, headers={
             "X-Authentication-Denied-Reason": "CAPTCHA_CHALLENGE; login-url=/login.jsp"})
-        self.assertFails(jira.CREDENTIALS_REFUSED, "log in to Jira in a browser")
+        self.assertFails(jira.CREDENTIALS_REFUSED, "logs in to Jira in a browser")
         self.assertEqual(len(self.jira.requests), 1)
 
     def test_bad_jql(self):
@@ -426,8 +449,42 @@ class ErrorsTest(JiraTestCase):
         self.jira.route("GET", "issue/createmeta/TEST/issuetypes/1", {"values": []})
         self.jira.route("POST", "issue", {"errors": {"priority": "Priority is required."}},
                         status=400)
-        self.assertFails(jira.FIELDS_REQUIRED, "priority (Priority is required.)",
-                         "create", "--type", "Bug", "--summary", "x")
+        self.assertFails(jira.FIELDS_REQUIRED, "needs the fields: priority (Priority is "
+                         "required.)", "create", "--type", "Bug", "--summary", "x")
+
+    def test_refused_values_are_not_missing_fields(self):
+        self.jira.route("GET", "issue/createmeta/TEST/issuetypes",
+                        {"values": [{"id": "1", "name": "Bug"}]})
+        self.jira.route("GET", "issue/createmeta/TEST/issuetypes/1", {"values": []})
+        self.jira.route("POST", "issue", {"errors": {
+            "customfield_10100": "Epic TEST-0 does not exist."}}, status=400)
+        self.assertFails(jira.REFUSED, "refused the values: customfield_10100",
+                         "create", "--type", "Bug", "--summary", "x", "--epic", "TEST-0")
+
+    def test_url_must_be_https(self):
+        for url in ("http://jira.example.com", "jira.example.com", "https://"):
+            with self.subTest(url=url), mock.patch.dict(os.environ, {"JIRA_URL": url}):
+                self.assertFails(jira.SETUP, "https://")
+        self.assertEqual(self.jira.requests, [])
+
+    def test_answer_that_is_not_jira(self):
+        self.jira.route("GET", "issue/TEST-1", Raw(b"<html>Not Found</html>"), status=404)
+        self.assertFails(jira.SETUP, "JIRA_URL is not Jira's base address")
+        self.jira.route("GET", "issue/TEST-1", Raw(b"<html>login</html>"))
+        self.assertFails(jira.SETUP, "JIRA_URL is not Jira's base address")
+
+    def test_broken_answer(self):
+        self.jira.route("GET", "issue/TEST-1", Raw(b'{"key"', length=100))
+        self.assertFails(jira.UNREACHABLE, "IncompleteRead")
+
+    def test_no_answer_to_a_write_says_check_first(self):
+        event = threading.Event()
+        self.addCleanup(event.set)
+        handler = self.jira.server.RequestHandlerClass
+        handler.do_POST = lambda request: event.wait(5)
+        with mock.patch.object(jira, "TIMEOUT", 0.3):
+            self.assertFails(jira.UNREACHABLE, "may have been applied",
+                             "comment", "TEST-1", "x")
 
     def test_server_error(self):
         self.jira.route("GET", "issue/TEST-1", None, status=500)
@@ -436,7 +493,7 @@ class ErrorsTest(JiraTestCase):
     def test_redirect_is_not_followed(self):
         self.jira.route("GET", "issue/TEST-1", None, status=302,
                         headers={"Location": "http://127.0.0.1:1/sso"})
-        self.assertFails(jira.REFUSED, "redirect (302), not followed")
+        self.assertFails(jira.SETUP, "redirect (302), not followed")
         self.assertEqual(len(self.jira.requests), 1)
 
     def test_unreachable(self):
