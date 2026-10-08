@@ -2,14 +2,17 @@
 
 - Дата: 2026-10-08
 - Кит: `.` (worktree запуска `improve/tracker-jira-server`), путь задан
-- Коммит: f24cd29 (`kit.yaml` `version: 1.0.0`)
+- Коммит: 1240f8d (`kit.yaml` `version: 1.0.0`)
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно `kit-reports/tracker-jira-server-0.1.1-2026-10-08.md`
   (артефакт `assessment`), база — 37181e0 (её называет план),
   `git diff 37181e0 -- kit.yaml README.md BLUEPRINT.md agents flows skills`: 5 файлов.
-  Второй визит `evaluate`: прошлая версия этого отчёта — 043988f (e81d06a, `changes`);
-  с тех пор e750d69 (автор) и f24cd29 (супервизор, BLUEPRINT).
-- Проходы: изменение после 043988f маленькое (4 файла, около 40 строк), три прохода я
+  Третий визит `evaluate`. Версии этого отчёта: 043988f (e81d06a, `changes`), 1482359
+  (f24cd29, `approved`). С 1482359: cfbc00a (README, автор) и 1240f8d (BLUEPRINT,
+  супервизор) — человек отменил переименование репозитория (F12.4 отчёта 37181e0 снята).
+- Проходы (этот визит): изменение после 1482359 — 2 файла, около 20 строк (заголовок и
+  URL README, R10, обратная проверка R10, журнал); три прохода и полный проход по README и
+  BLUEPRINT я сделал сам; новых находок нет. Проходы прошлого визита: изменение после 043988f маленькое (4 файла, около 40 строк), три прохода я
   сделал сам, без субагентов. Проход 1: jira.py (`WAIT`, `STOP_ALL`, строки вложенных
   ключей) с запусками. Проход 2: SKILL.md и README против сообщений скрипта. Проход 3:
   BLUEPRINT R6, R8, R10, раздел 3 против файлов. Затем полный проход по всем пяти файлам,
@@ -96,7 +99,7 @@ the settings name `fields.epic_name`, otherwise the `--field` the script names (
 ### 4. Независимая проверка
 
 Не применимо к тексту кита; R10 ставит повтор пробы в песочнице до одобрения релиза
-человеком (BLUEPRINT.md:91-92).
+человеком (BLUEPRINT.md:91-93).
 
 ### 5. Противоречия
 
@@ -141,9 +144,13 @@ value` (значение на строке 4; `jira.py:150`).
 ### 12. Безопасность и границы
 
 Пароль не попадает в аргументы процессов: проверка входа — только `jira.py search`
-(README.md:41-43). Переименование репозитория — «at the release step with the human's yes»
-(R10); README.md:1 и :17 уже под новым именем — сверка с remote на шаге релиза (см.
-«Questions for the human»).
+(README.md:41-43). Репозиторий не переименовывается: README.md:1 `# kit-tracker-jira-server`,
+README.md:17 `lado kits add https://github.com/ladohq/kit-tracker-jira-server` совпадают с
+`git remote` (`git@github.com:ladohq/kit-tracker-jira-server.git`); BLUEPRINT.md:94 «The
+repository keeps its name `kit-tracker-jira-server`», с причиной — README официального
+маркетплейса, пункт 4: «(kits of the ladohq organisation are named `kit-<name>`)».
+`grep -rn "lado-kit-tracker\|rename"` вне `kit-reports/` и `.git` находит только строку
+журнала BLUEPRINT.md:178 об отмене.
 
 ## Known holes
 
@@ -175,7 +182,8 @@ value` (значение на строке 4; `jira.py:150`).
 | F9.1 [low] строка вложенного значения | RESOLVED | `jira.py:150` `lines[section + "." + key] = number`; запуск: «line 4» |
 | F9.2 [low] строки R1/R6 | RESOLVED | BLUEPRINT.md:13-16, :46-54 перенесены; «report 37181e0, F5.5» в *Source* |
 | F12.1 [low] curl с паролем | RESOLVED | README.md:41-43, вариант с curl убран |
-| F12.2 [low] URL до переименования, заголовок | RESOLVED в тексте кита (README.md:1 `# lado-kit-tracker-jira-server`); сверка URL с remote — на шаге релиза, вопрос 1 | README.md:17 |
+| F12.2 [low] URL до переименования, заголовок | RESOLVED: переименования нет, URL и заголовок совпадают с remote (cfbc00a) | README.md:1, :17 |
+| F12.4 отчёта 37181e0 (имя `lado-kit-<name>`) | снята человеком: ошибочная, ladohq называет киты `kit-<name>` (см. «Found on the way») | BLUEPRINT.md:94-99, журнал :178 |
 
 Отчёт 37181e0 (`assessment`): все 15 находок RESOLVED — подтверждено в версии 043988f
 этого отчёта; остаточные замечания оттуда (F5.1, F3.1, F5.2–F5.5, F9.1, F12.1, F12.2)
@@ -192,8 +200,8 @@ value` (значение на строке 4; `jira.py:150`).
 | SKILL.md:130 «After exit 1, 9 or 12 on a write, `get` or `search` before running it again» | SKILL.md:136-137, для 5xx и «once you are told Jira answers again» |
 | README.md:24-25 «Jira Server before 8.14 has no personal access tokens, so the password is the user's own» | README.md:26-28 |
 | README.md:38 проверка входа `curl -u "$JIRA_USER"` | README.md:41-43, `jira.py search … --max 1` |
-| BLUEPRINT.md:75-78 R10 (проба на настоящей Jira) | R10 BLUEPRINT.md:88-97 — заменено решением триажа |
-| BLUEPRINT.md:80-83 «Further limits for agents» | BLUEPRINT.md:99-101 |
+| BLUEPRINT.md:75-78 R10 (проба на настоящей Jira) | R10 BLUEPRINT.md:88-99 — заменено решением триажа |
+| BLUEPRINT.md:80-83 «Further limits for agents» | BLUEPRINT.md:101-103 |
 | BLUEPRINT.md:84-85 «CRM3's facts … gathered by the human before the trial» | BLUEPRINT.md:53-54 «gathered at its first use» |
 
 Правил не потеряно.
@@ -208,12 +216,14 @@ value` (значение на строке 4; `jira.py:150`).
 
 ## Questions for the human
 
-1. На шаге релиза: README.md:17 уже указывает на `ladohq/lado-kit-tracker-jira-server`, а
-   `git remote` — всё ещё `ladohq/kit-tracker-jira-server`. Совет: переименовать
-   репозиторий на GitHub (R10, с вашего «да») до push и pull request в маркетплейс; если
-   откажетесь — вернуть в README прежний URL и заголовок до тега.
+Нет. (Вопрос прошлой версии о переименовании решён: репозиторий сохраняет имя.)
 
 ## Found on the way
 
+- `[kit-builder]` `lado-kit-format`, «Publishing», велит «Name the kit's repository
+  `lado-kit-<name>`», не упоминая исключения из README официального маркетплейса
+  («kits of the ladohq organisation are named `kit-<name>`»). По этому правилу я дал
+  ошибочную F12.4 в отчёте 37181e0, и её приняли без проверки. Стоит добавить исключение в
+  скилл.
 - `[kit-builder]` Скрипт потоков `kit-budget` (`flow_diagram.py`) не знает кита без
   `flows/`: `error: kit.yaml: states must be a non-empty mapping` (код 2). Всё ещё открыто.
