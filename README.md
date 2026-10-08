@@ -36,8 +36,8 @@ stalls every agent's start: run the line once in a new terminal and allow `secur
 read the item ("Always Allow") before the first session.
 
 Check the login once by hand before a session: `curl -u "$JIRA_USER" "$JIRA_URL/rest/api/2/myself"`.
-A wrong password is never retried, since after a few failed logins Jira asks for a CAPTCHA and refuses
-REST logins until you log in in a browser. If Jira's certificate is from a corporate CA,
+A wrong password is never retried, since after failed logins (on some servers after the first) Jira
+asks for a CAPTCHA and refuses REST logins until you log in in a browser. If Jira's certificate is from a corporate CA,
 point `SSL_CERT_FILE` at a file with that CA; verification is never turned off. The script
 refuses a `JIRA_URL` that is not `https://`, since the password goes with every request.
 

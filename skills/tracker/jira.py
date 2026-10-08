@@ -399,7 +399,10 @@ def cmd_get(jira, args):
     print("\nDescription:\n%s" % (fields.get("description") or "(empty)"))
     comments = (fields.get("comment") or {}).get("comments") or []
     shown = comments[-args.comments:] if args.comments > 0 else []
-    print("\nComments: %d, the last %d shown" % (len(comments), len(shown)))
+    if comments:
+        print("\nComments: %d, the last %d shown" % (len(comments), len(shown)))
+    else:
+        print("\nComments: none")
     for comment in shown:
         print("\n--- %s, %s\n%s" % (_name(comment.get("author")), comment.get("created"),
                                     comment.get("body")))
@@ -461,13 +464,20 @@ def cmd_create(jira, args):
     meta = (jira.call("GET", "%s/%s" % (base, type_id), {"maxResults": 500})
             or {}).get("values") or []
     # Jira Server may list the reporter as required, yet fills it with the caller.
-    lacking = ["%s (%s)" % (f.get("name"), f.get("fieldId")) for f in meta
+    lacking = [f for f in meta
                if f.get("required") and not f.get("hasDefaultValue")
                and f.get("fieldId") not in fields and f.get("fieldId") != "reporter"]
-    if lacking:
-        raise Failure(FIELDS_REQUIRED, "creating a %s in %s needs: %s; give each with "
-                                       "--field id=value" % (type_name, project,
-                                                             ", ".join(lacking)))
+    epic_name = (config.get("fields") or {}).get("epic_name")
+    hints = []
+    for f in lacking:
+        label = "%s (%s)" % (f.get("name"), f.get("fieldId"))
+        if f.get("fieldId") == epic_name or f.get("name", "").lower() == "epic name":
+            hints.append("%s: give it with --epic-name '<name>'" % label)
+        else:
+            hints.append("%s: give it with --field id=value" % label)
+    if hints:
+        raise Failure(FIELDS_REQUIRED, "creating %s in %s needs: %s"
+                      % (type_name, project, "; ".join(hints)))
     created = jira.call("POST", "issue", body={"fields": fields}, sent=fields)
     print("%s created" % created.get("key"))
     return OK

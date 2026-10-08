@@ -118,7 +118,7 @@ and wait for its answer; as the lead, tell the human. Act on the exit code:
 | 2 | wrong arguments, or empty text | fix the command (`--help`) |
 | 3 | `.lado/tracker.yaml` missing, invalid, or lacks a setting | report it; the user fixes the file |
 | 4 | a Jira variable is unset, or `JIRA_URL` is wrong (not `https://`, a redirect, not Jira's answer) | report it; the user fixes their shell profile and restarts the session |
-| 5 | credentials refused, or Jira wants a CAPTCHA | stop using Jira and report it: one more try can lock the login. The lead tells every agent to stop using Jira until the human says it is fixed |
+| 5 | credentials refused, or Jira wants a CAPTCHA | stop using Jira and report it: Jira asks for a CAPTCHA after failed logins (on some servers after the first), so one more try can lock the login. The lead tells every agent to stop using Jira until the human says it is fixed |
 | 6 | no access to the task or project | report what you tried; look for no way around |
 | 7 | task or project not found | check the key; report it if the key came from someone else |
 | 8 | Jira needs fields (named) | give them and run again; if you cannot know the values, report it |

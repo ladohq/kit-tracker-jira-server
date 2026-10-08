@@ -237,6 +237,14 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(request["headers"]["Authorization"], expected)
         self.assertIn("customfield_10100", request["query"]["fields"])
 
+    def test_get_without_comments(self):
+        self.jira.route("GET", "issue/TEST-2", {"key": "TEST-2", "fields": {
+            "summary": "Quiet", "comment": {"comments": []}}})
+        code, out, err = self.run_jira("get", "TEST-2")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Comments: none", out)
+        self.assertNotIn("shown", out)
+
     def test_search_pages_and_project_placeholder(self):
         self.jira.route("GET", "search", {"startAt": 20, "total": 45, "issues": [
             {"key": "TEST-%d" % i, "fields": {"summary": "s", "status": {"name": "Open"},
@@ -302,6 +310,19 @@ class CommandsTest(JiraTestCase):
         fields = self.sent("POST", "issue")[0]["body"]["fields"]
         self.assertEqual(fields["components"], [{"name": "UI"}])
         self.assertEqual(fields["description"], "[LADO: developer]")
+
+    def test_create_epic_without_name_points_to_epic_name(self):
+        self.route_createmeta()
+        self.jira.route("GET", "issue/createmeta/TEST/issuetypes/10000", {"values": [
+            {"fieldId": "customfield_10101", "name": "Epic Name", "required": True},
+            {"fieldId": "components", "name": "Components", "required": True}]})
+        code, _, err = self.run_jira("create", "--type", "epic", "--summary", "Login")
+        self.assertEqual(code, jira.FIELDS_REQUIRED)
+        self.assertIn("creating Epic in TEST needs", err)
+        self.assertIn("Epic Name (customfield_10101): give it with --epic-name '<name>'",
+                      err)
+        self.assertIn("Components (components): give it with --field id=value", err)
+        self.assertEqual(self.sent("POST", "issue"), [])
 
     def test_create_epic_needs_its_setting(self):
         self.write_config("project: TEST\n")
