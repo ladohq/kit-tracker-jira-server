@@ -466,7 +466,8 @@ class ErrorsTest(JiraTestCase):
                          "create", "--type", "Bug", "--summary", "x", "--epic", "TEST-0")
 
     def test_url_must_be_https(self):
-        for url in ("http://jira.example.com", "jira.example.com", "https://"):
+        for url in ("http://jira.example.com", "jira.example.com", "https://",
+                    "https://jira.example.com:abc"):
             with self.subTest(url=url), mock.patch.dict(os.environ, {"JIRA_URL": url}):
                 self.assertFails(jira.SETUP, "https://")
         self.assertEqual(self.jira.requests, [])
@@ -493,6 +494,21 @@ class ErrorsTest(JiraTestCase):
     def test_server_error(self):
         self.jira.route("GET", "issue/TEST-1", None, status=500)
         self.assertFails(jira.SERVER_ERROR, "Jira failed (500)")
+        self.assertNotIn("may have been applied", self.assertFails(
+            jira.SERVER_ERROR, "Jira failed (500)"))
+
+    def test_server_error_after_a_write_says_check_first(self):
+        self.jira.route("POST", "issue/TEST-1/comment", None, status=504)
+        self.assertFails(jira.SERVER_ERROR, "may have been applied", "comment", "TEST-1", "x")
+
+    def test_field_errors_on_comment_and_link_are_refusals(self):
+        self.jira.route("POST", "issue/TEST-1/remotelink", {"errors": {"url": "Invalid URL"}},
+                        status=400)
+        self.assertFails(jira.REFUSED, "refused the values: url (Invalid URL)",
+                         "link", "TEST-1", "not a url")
+        self.jira.route("POST", "issue/TEST-1/comment", {"errors": {"comment": "Too long"}},
+                        status=400)
+        self.assertFails(jira.REFUSED, "refused the values", "comment", "TEST-1", "x")
 
     def test_redirect_is_not_followed(self):
         self.jira.route("GET", "issue/TEST-1", None, status=302,

@@ -65,8 +65,9 @@ The other sections (issue types, labels, custom field ids such as Epic Link, whi
 
 Every comment and every created task's description starts with `[LADO: <agent>]`, the
 name of the agent that wrote it. Run by hand (no `LADO_AGENT` in the environment), the
-script adds no mark. The kit sets no limits on what agents do in Jira; a process kit
-says which roles touch the tracker and when.
+script adds no mark. By default agents only read; they create, transition, comment or
+link when their role, their step or the human asks (`skills/tracker/SKILL.md`). A process
+kit says which roles touch the tracker and when, and may allow more.
 
 ## Development
 

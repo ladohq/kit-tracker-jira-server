@@ -69,10 +69,17 @@ text as it is:
 | code block | `{code:python}` ... `{code}` on lines of their own; `{noformat}` for logs |
 | quote | `bq. one line`, or `{quote}` ... `{quote}` |
 | panel | `{panel:title=Result}` ... `{panel}` |
-| table | `\|\|Head\|\|Head\|\|` once, then `\|cell\|cell\|` per row |
-| link | `[text\|https://...]`, a task by its bare key `KEY-1` |
+| table, link | see below the table |
 | bullet, numbered list | `* item`, `# item` (`**` nests) |
 | mention a user | `[~login]` |
+
+Tables and links use `|`; a task's bare key `KEY-1` links to it:
+
+```
+||Head||Head||
+|cell|cell|
+[text|https://example.com/page]
+```
 
 A blank line separates paragraphs; inside `{code}` and `{noformat}` nothing is markup.
 
@@ -107,7 +114,7 @@ and wait for its answer; as the lead, tell the human. Act on the exit code:
 
 | Exit | What happened | What you do |
 |---|---|---|
-| 1 | the script crashed | report its last line; repeat no write before you checked with `get` or `search` |
+| 1 | the script crashed | report its last line |
 | 2 | wrong arguments, or empty text | fix the command (`--help`) |
 | 3 | `.lado/tracker.yaml` missing, invalid, or lacks a setting | report it; the user fixes the file |
 | 4 | a Jira variable is unset, or `JIRA_URL` is wrong (not `https://`, a redirect, not Jira's answer) | report it; the user fixes their shell profile and restarts the session |
@@ -115,9 +122,10 @@ and wait for its answer; as the lead, tell the human. Act on the exit code:
 | 6 | no access to the task or project | report what you tried; look for no way around |
 | 7 | task or project not found | check the key; report it if the key came from someone else |
 | 8 | Jira needs fields (named) | give them and run again; if you cannot know the values, report it |
-| 9 | Jira not reachable | report it (VPN or company network?). After a write, `get` or `search` before running it again: it may have been applied |
+| 9 | Jira not reachable | report it (VPN or company network?) |
 | 10 | TLS failed | report it: a corporate CA goes in a file named by `SSL_CERT_FILE` |
 | 11 | Jira refused the request (bad JQL, a refused field value, unknown type, transition not open) | read the line, fix the request once; if it still fails, report it |
 | 12 | Jira itself failed (5xx) | report it; whether your step can go on without the tracker is your step's decision |
 
-Whatever the code, never guess the task's state from a failed run: say what failed.
+After exit 1, 9 or 12 on a write, `get` or `search` before running it again: it may
+have been applied. Whatever the code, never guess the task's state from a failed run: say what failed.

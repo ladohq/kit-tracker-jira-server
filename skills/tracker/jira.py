@@ -35,6 +35,8 @@ SERVER_ERROR = 12
 
 TIMEOUT = 30
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
+APPLIED = ("; the change may have been applied: check with get or search before running "
+           "it again")
 NOT_JIRA = ("the answer is not Jira's: JIRA_URL is not Jira's base address (with its "
             "context path, if Jira has one)")
 CONFIG_PATH = os.path.join(".lado", "tracker.yaml")
@@ -223,8 +225,12 @@ class Jira:
                                  "profile, then starts a new session" % ", ".join(missing))
         self.base = os.environ["JIRA_URL"].rstrip("/")
         url = urllib.parse.urlsplit(self.base)
+        try:
+            url.port  # raises ValueError on a malformed port
+        except ValueError:
+            url = None
         # The password goes in every request: only over TLS, or to this machine (tests).
-        if not url.hostname or not (url.scheme == "https" or (
+        if not url or not url.hostname or not (url.scheme == "https" or (
                 url.scheme == "http" and url.hostname in LOOPBACK)):
             raise Failure(SETUP, "JIRA_URL must be Jira's https:// base address: the "
                                  "password is sent with every request")
@@ -236,7 +242,8 @@ class Jira:
             _NoRedirect, urllib.request.HTTPSHandler(context=context))
 
     def call(self, method, path, query=None, body=None, missing=None, sent=()):
-        """`sent`: the fields the request sets, to tell refused values from missing ones."""
+        """`sent`: the fields the request sets, to tell refused values from missing ones;
+        None for a request that takes no other fields, whose field errors are refusals."""
         url = self.base + "/rest/api/2/" + path
         if query:
             url += "?" + urllib.parse.urlencode(query)
@@ -250,7 +257,7 @@ class Jira:
             with self.opener.open(request, timeout=TIMEOUT) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
-            raise self._http_failure(error, missing, sent)
+            raise self._http_failure(error, method, missing, sent)
         except urllib.error.URLError as error:
             raise self._network_failure(error.reason, method)
         except (socket.timeout, TimeoutError, ConnectionError, ssl.SSLError,
@@ -270,8 +277,7 @@ class Jira:
             return Failure(TLS, "TLS failed (%s): if Jira's certificate is from a corporate "
                                 "CA, set SSL_CERT_FILE to a file with that CA" % why)
         # A write that got no answer may still have been applied.
-        after = "; the change may have been applied: check with get or search before " \
-                "running it again" if method != "GET" else ""
+        after = APPLIED if method != "GET" else ""
         if isinstance(reason, (socket.timeout, TimeoutError)):
             return Failure(UNREACHABLE, "Jira did not answer in %d seconds: are you on the "
                                         "VPN or the company network?%s" % (TIMEOUT, after))
@@ -279,7 +285,7 @@ class Jira:
                                     "company network?%s" % (type(reason).__name__, after))
 
     @staticmethod
-    def _http_failure(error, missing, sent):
+    def _http_failure(error, method, missing, sent):
         code = error.code
         denied = error.headers.get("X-Authentication-Denied-Reason")
         try:
@@ -312,8 +318,10 @@ class Jira:
         if code == 404:
             return Failure(NOT_FOUND, missing or "not found (404)%s" % detail)
         if code >= 500:
-            return Failure(SERVER_ERROR, "Jira failed (%d)%s" % (code, detail))
-        if fields and not set(fields) & set(sent):
+            # A proxy's 502/504 or a failing post-function can follow an applied write.
+            return Failure(SERVER_ERROR, "Jira failed (%d)%s%s" % (
+                code, detail, APPLIED if method != "GET" else ""))
+        if fields and sent is not None and not set(fields) & set(sent):
             names = ", ".join("%s (%s)" % item for item in sorted(fields.items()))
             return Failure(FIELDS_REQUIRED, "Jira needs the fields: %s" % names)
         if fields:
@@ -527,7 +535,7 @@ def cmd_transition(jira, args):
 def cmd_comment(jira, args):
     body = {"body": mark(read_text(args.text))}
     result = jira.call("POST", "issue/%s/comment" % urllib.parse.quote(args.key),
-                       body=body, missing=missing_issue(args.key))
+                       body=body, missing=missing_issue(args.key), sent=None)
     print("%s: comment %s added" % (args.key, (result or {}).get("id")))
     return OK
 
@@ -535,7 +543,7 @@ def cmd_comment(jira, args):
 def cmd_link(jira, args):
     body = {"globalId": args.url, "object": {"url": args.url, "title": args.title or args.url}}
     jira.call("POST", "issue/%s/remotelink" % urllib.parse.quote(args.key), body=body,
-              missing=missing_issue(args.key))
+              missing=missing_issue(args.key), sent=None)
     print("%s: linked %s" % (args.key, args.url))
     return OK
 
