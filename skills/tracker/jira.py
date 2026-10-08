@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jira Server / Data Center 8.x from the command line: REST API v2, Basic auth.
+"""Jira Server / Data Center 8.4 or newer from the command line: REST API v2, Basic auth.
 
 Commands: get, search, create, transition, comment, link (run with --help).
 Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD and are never printed.
@@ -35,8 +35,9 @@ SERVER_ERROR = 12
 
 TIMEOUT = 30
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
-APPLIED = ("; the change may have been applied: check with get or search before running "
-           "it again")
+APPLIED = ("; the change may have been applied: once Jira answers again, check with get "
+           "or search before running it again")
+STOP_ALL = "; tell every agent to stop using Jira until the human says it is fixed"
 NOT_JIRA = ("the answer is not Jira's: JIRA_URL is not Jira's base address (with its "
             "context path, if Jira has one)")
 CONFIG_PATH = os.path.join(".lado", "tracker.yaml")
@@ -102,6 +103,7 @@ def _value(text, where):
 def parse_config(text, path):
     """Parse the subset: `key: value`, one level of nested maps, `[a, b]`, `#` comments."""
     data = {}
+    lines = {}
     section = None
     indent = None
     for number, raw in enumerate(text.splitlines(), 1):
@@ -124,6 +126,7 @@ def parse_config(text, path):
         if depth == 0:
             if key in data:
                 raise ValueError(where + "'%s' is given twice" % key)
+            lines[key] = number
             if rest.strip():
                 data[key] = _value(rest, where)
                 section = None
@@ -142,30 +145,32 @@ def parse_config(text, path):
         if key in data[section]:
             raise ValueError(where + "'%s' is given twice in '%s'" % (key, section))
         data[section][key] = _value(rest, where)
-    return _validate(data, path)
+    return _validate(data, path, lines)
 
 
-def _validate(data, path):
-    where = path + ": "
+def _validate(data, path, lines):
+    def where(key):
+        return "%s line %d: " % (path, lines[key]) if key in lines else path + ": "
     for key in data:
         if key not in CONFIG_KEYS:
-            raise ValueError(where + "unknown key '%s'; known keys: %s"
+            raise ValueError(where(key) + "unknown key '%s'; known keys: %s"
                              % (key, ", ".join(CONFIG_KEYS)))
     if not isinstance(data.get("project"), str) or not data.get("project"):
-        raise ValueError(where + "'project' (the Jira project key) is required")
+        raise ValueError(where("project") + "'project' (the Jira project key) is required")
     for key in CONFIG_MAPS:
         value = data.setdefault(key, {})
         if not isinstance(value, dict):
-            raise ValueError(where + "'%s' must be a map of 'name: value' lines" % key)
+            raise ValueError(where(key) + "'%s' must be a map of 'name: value' lines" % key)
         for name, item in value.items():
             if not isinstance(item, str) or not item:
-                raise ValueError(where + "'%s.%s' must be one plain value" % (key, name))
+                raise ValueError(where(key) + "'%s.%s' must be one plain value" % (key, name))
     for key in CONFIG_LISTS:
         value = data.setdefault(key, [])
         if isinstance(value, str):
-            raise ValueError(where + "'%s' must be a list, e.g. [a, b]" % key)
+            raise ValueError(where(key) + "'%s' must be a list, e.g. [a, b]" % key)
         if isinstance(value, dict):
-            raise ValueError(where + "'%s' must be a list, e.g. [a, b], not a map" % key)
+            raise ValueError(where(key) + "'%s' must be a list, e.g. [a, b], not a map"
+                             % key)
     return data
 
 
@@ -303,12 +308,13 @@ class Jira:
         if denied or (code == 403 and "captcha" in detail.lower()):
             return Failure(CREDENTIALS_REFUSED, "Jira refused the login and wants a CAPTCHA "
                                                 "after failed logins: the user logs in to "
-                                                "Jira in a browser once (not retried)")
+                                                "Jira in a browser once (not retried)"
+                                                + STOP_ALL)
         if code == 401:
             return Failure(CREDENTIALS_REFUSED, "Jira refused the credentials (401): check "
                                                 "JIRA_USER and JIRA_PASSWORD; not retried, "
                                                 "since more failed logins make Jira ask "
-                                                "for a CAPTCHA")
+                                                "for a CAPTCHA" + STOP_ALL)
         if 300 <= code < 400:
             return Failure(SETUP, "Jira answered with a redirect (%d), not followed: "
                                   "JIRA_URL is not Jira's base address, or a login page "
@@ -319,6 +325,10 @@ class Jira:
             return Failure(NO_ACCESS, "no access (403)%s" % detail)
         if code == 404:
             return Failure(NOT_FOUND, missing or "not found (404)%s" % detail)
+        if code == 429:
+            # Rate limiting refuses the request before it runs, so nothing was applied.
+            return Failure(SERVER_ERROR, "Jira is rate limiting requests (429): report it, "
+                                         "do not retry")
         if code >= 500:
             # A proxy's 502/504 or a failing post-function can follow an applied write.
             return Failure(SERVER_ERROR, "Jira failed (%d)%s%s" % (
@@ -471,8 +481,11 @@ def cmd_create(jira, args):
     hints = []
     for f in lacking:
         label = "%s (%s)" % (f.get("name"), f.get("fieldId"))
-        if f.get("fieldId") == epic_name or f.get("name", "").lower() == "epic name":
+        if epic_name and f.get("fieldId") == epic_name:
             hints.append("%s: give it with --epic-name '<name>'" % label)
+        elif f.get("name", "").lower() == "epic name":
+            # --epic-name writes fields.epic_name, which is unset or another field here.
+            hints.append("%s: give it with --field %s=<name>" % (label, f.get("fieldId")))
         else:
             hints.append("%s: give it with --field id=value" % label)
     if hints:
@@ -565,7 +578,8 @@ def cmd_link(jira, args):
 
 def parser():
     top = argparse.ArgumentParser(
-        prog="jira.py", description="Jira Server / Data Center 8.x through REST API v2.")
+        prog="jira.py",
+        description="Jira Server / Data Center 8.4 or newer through REST API v2.")
     sub = top.add_subparsers(dest="command", metavar="<command>")
     sub.required = True
 

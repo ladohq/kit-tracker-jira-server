@@ -191,12 +191,14 @@ class ConfigTest(unittest.TestCase):
                     self.parse(text)
 
     def test_unknown_key_and_wrong_shapes(self):
-        with self.assertRaisesRegex(ValueError, "unknown key 'statuss'"):
+        with self.assertRaisesRegex(ValueError, "line 2: unknown key 'statuss'"):
             self.parse("project: A\nstatuss:\n  done: Done\n")
-        with self.assertRaisesRegex(ValueError, "'labels' must be a list"):
-            self.parse("project: A\nlabels: lado\n")
-        with self.assertRaisesRegex(ValueError, "'statuses' must be a map"):
+        with self.assertRaisesRegex(ValueError, "line 3: 'labels' must be a list"):
+            self.parse("project: A\n\nlabels: lado\n")
+        with self.assertRaisesRegex(ValueError, "line 2: 'statuses' must be a map"):
             self.parse("project: A\nstatuses: Done\n")
+        with self.assertRaisesRegex(ValueError, "tracker.yaml: 'project'.* is required"):
+            self.parse("labels: [a]\n")
 
     def test_found_upward_but_not_above_the_repository(self):
         top = tempfile.mkdtemp()
@@ -323,6 +325,21 @@ class CommandsTest(JiraTestCase):
                       err)
         self.assertIn("Components (components): give it with --field id=value", err)
         self.assertEqual(self.sent("POST", "issue"), [])
+
+    def test_create_epic_name_of_another_field_points_to_field(self):
+        for config in ("project: TEST\nissue_types:\n  epic: Epic\n",
+                       CONFIG.replace("customfield_10101", "customfield_10999")):
+            with self.subTest(config=config):
+                self.write_config(config)
+                self.route_createmeta()
+                self.jira.route("GET", "issue/createmeta/TEST/issuetypes/10000", {
+                    "values": [{"fieldId": "customfield_10101", "name": "Epic Name",
+                                "required": True}]})
+                code, _, err = self.run_jira("create", "--type", "epic", "--summary", "x")
+                self.assertEqual(code, jira.FIELDS_REQUIRED)
+                self.assertIn("Epic Name (customfield_10101): give it with "
+                              "--field customfield_10101=<name>", err)
+                self.assertNotIn("--epic-name", err)
 
     def test_create_epic_needs_its_setting(self):
         self.write_config("project: TEST\n")
@@ -454,13 +471,15 @@ class ErrorsTest(JiraTestCase):
     def test_refused_credentials_are_not_retried(self):
         self.jira.route("GET", "issue/TEST-1", None, status=401,
                         headers={"X-Seraph-LoginReason": "AUTHENTICATED_FAILED"})
-        self.assertFails(jira.CREDENTIALS_REFUSED, "refused the credentials (401)")
+        err = self.assertFails(jira.CREDENTIALS_REFUSED, "refused the credentials (401)")
+        self.assertIn("tell every agent to stop using Jira", err)
         self.assertEqual(len(self.jira.requests), 1)
 
     def test_captcha(self):
         self.jira.route("GET", "issue/TEST-1", None, status=403, headers={
             "X-Authentication-Denied-Reason": "CAPTCHA_CHALLENGE; login-url=/login.jsp"})
-        self.assertFails(jira.CREDENTIALS_REFUSED, "logs in to Jira in a browser")
+        err = self.assertFails(jira.CREDENTIALS_REFUSED, "logs in to Jira in a browser")
+        self.assertIn("tell every agent to stop using Jira", err)
         self.assertEqual(len(self.jira.requests), 1)
 
     def test_bad_jql(self):
@@ -512,14 +531,23 @@ class ErrorsTest(JiraTestCase):
         handler = self.jira.server.RequestHandlerClass
         handler.do_POST = lambda request: event.wait(5)
         with mock.patch.object(jira, "TIMEOUT", 0.3):
-            self.assertFails(jira.UNREACHABLE, "may have been applied",
-                             "comment", "TEST-1", "x")
+            err = self.assertFails(jira.UNREACHABLE, "may have been applied",
+                                   "comment", "TEST-1", "x")
+        self.assertIn("once Jira answers again, check with get or search", err)
 
     def test_server_error(self):
         self.jira.route("GET", "issue/TEST-1", None, status=500)
         self.assertFails(jira.SERVER_ERROR, "Jira failed (500)")
         self.assertNotIn("may have been applied", self.assertFails(
             jira.SERVER_ERROR, "Jira failed (500)"))
+
+    def test_rate_limit_is_reported_not_retried(self):
+        self.jira.route("POST", "issue/TEST-1/comment", None, status=429)
+        err = self.assertFails(jira.SERVER_ERROR, "rate limiting requests (429)",
+                               "comment", "TEST-1", "x")
+        self.assertIn("do not retry", err)
+        self.assertNotIn("may have been applied", err)
+        self.assertEqual(len(self.jira.requests), 1)
 
     def test_server_error_after_a_write_says_check_first(self):
         self.jira.route("POST", "issue/TEST-1/comment", None, status=504)

@@ -32,11 +32,14 @@ steps may allow more.
 |---|---|
 | find tasks | `search '<JQL>' [--start N] [--max N]` |
 | read a task | `get KEY-1 [--comments N]` |
-| create a task | `create --type <type> --summary '<text>' [--description -] [--epic KEY-9] [--field id=value]` |
+| create a task | `create --type <type> --summary '<text>' [--description -] [--epic KEY-9] [--epic-name '<name>'] [--field id=value]` |
 | see where a task can go | `transition KEY-1` |
 | change its status | `transition KEY-1 '<status or transition>' [--resolution Fixed] [--comment -]` |
 | comment | `comment KEY-1 -` (the text on stdin) |
 | link a branch, commit or pull request | `link KEY-1 <url> [--title '<text>']` |
+
+The `link` URL is the branch's or commit's page on the repository's host; a repository
+with no remote has no such page, so give the branch and the commit hash in a `comment`.
 
 - **search**: `{project}` in the JQL is the project's key, e.g.
   `search 'project = {project} AND assignee = currentUser() AND resolution = Unresolved
@@ -109,8 +112,9 @@ Read it when you need the project's words; the user changes it, not you.
 ## When the script fails
 
 It prints one line saying what happened and stops; it never retries. To **report** a
-failure: as a worker, send the supervisor that line and the command with `send_message`
-and wait for its answer; as the lead, tell the human. Act on the exit code:
+failure: as a worker, send the supervisor that line and the command with `send_message`;
+as the lead, tell the human. Then wait for the answer if your step cannot go on without
+the tracker; otherwise go on with it. Act on the exit code:
 
 | Exit | What happened | What you do |
 |---|---|---|
@@ -118,14 +122,14 @@ and wait for its answer; as the lead, tell the human. Act on the exit code:
 | 2 | wrong arguments, or empty text | fix the command (`--help`) |
 | 3 | `.lado/tracker.yaml` missing, invalid, or lacks a setting | report it; the user fixes the file |
 | 4 | a Jira variable is unset, or `JIRA_URL` is wrong (not `https://`, a redirect, not Jira's answer) | report it; the user fixes their shell profile and restarts the session |
-| 5 | credentials refused, or Jira wants a CAPTCHA | stop using Jira and report it: Jira asks for a CAPTCHA after failed logins (on some servers after the first), so one more try can lock the login. The lead tells every agent to stop using Jira until the human says it is fixed |
+| 5 | credentials refused, or Jira wants a CAPTCHA | stop using Jira and report it: Jira asks for a CAPTCHA after failed logins (on some servers after the first), so one more try can lock the login. As the line says, every agent stops using Jira until the human says it is fixed; the lead tells them |
 | 6 | no access to the task or project | report what you tried; look for no way around |
 | 7 | task or project not found | check the key; report it if the key came from someone else |
 | 8 | Jira needs fields (named) | give them and run again; if you cannot know the values, report it |
-| 9 | Jira not reachable | report it (VPN or company network?) |
+| 9 | Jira not reachable or did not answer | report it (VPN or company network?) and send Jira nothing more until you are told it answers again |
 | 10 | TLS failed | report it: a corporate CA goes in a file named by `SSL_CERT_FILE` |
 | 11 | Jira refused the request (bad JQL, a refused field value, unknown type, transition not open) | read the line, fix the request once; if it still fails, report it |
-| 12 | Jira itself failed (5xx) | report it; whether your step can go on without the tracker is your step's decision |
+| 12 | Jira itself failed (5xx), or it is rate limiting requests (429) | report it |
 
-After exit 1, 9 or 12 on a write, `get` or `search` before running it again: it may
-have been applied. Whatever the code, never guess the task's state from a failed run: say what failed.
+After exit 1, 9 or 12 on a write, once Jira answers, `get` or `search` before running it
+again: it may have been applied. Whatever the code, never guess the task's state from a failed run: say what failed.

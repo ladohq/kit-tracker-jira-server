@@ -1,18 +1,20 @@
 # kit-tracker-jira-server
 
-A LADO kit for Jira Server and Data Center 8.x. It gives the roles of any process kit a
+A LADO kit for Jira Server and Data Center 8.4 or newer. It gives the roles of any process kit a
 skill named `tracker` that finds, reads, creates, moves and comments on tasks and links a
 branch or commit to them, through Jira's REST API v2 and a script on Python's standard
 library (no MCP server). Jira Cloud is not supported.
 
 The kit has no agents and no flows: it adds the skill to a session led by a process kit.
 A process kit's roles say "use the tracker skill"; a role that cannot work without it
-lists `skills: [tracker]`, so a session without a tracker kit refuses to start.
+lists `skills: [tracker]`, so a session without a tracker kit refuses to start. A lead
+with its own `skills:` list adds `tracker` to it if it should read the tracker; the
+script's credentials error (exit 5) asks the lead to tell every agent to stop using Jira.
 
 ## Install and start
 
 ```bash
-lado kits add https://github.com/ladohq/kit-tracker-jira-server
+lado kits add https://github.com/ladohq/lado-kit-tracker-jira-server
 lado start <repo> --kit <process-kit> --kit tracker-jira-server
 ```
 
@@ -21,8 +23,9 @@ The agents need `python3` (3.9 or newer) and a network path to Jira (VPN, if you
 ## Credentials
 
 The script logs in with Basic auth from three variables of the user's login shell, which
-LADO's agents inherit. Jira Server before 8.14 has no personal access tokens, so the
-password is the user's own; keep it in the OS keychain, not in the profile. On macOS:
+LADO's agents inherit. Personal access tokens (Jira 8.14 and newer) are not supported:
+the script uses Basic auth with the user's own password, so keep it in the OS keychain,
+not in the profile. On macOS:
 
 ```bash
 # ~/.zprofile
@@ -35,7 +38,10 @@ LADO reads the profile through the login shell with a time limit, so a keychain 
 stalls every agent's start: run the line once in a new terminal and allow `security` to
 read the item ("Always Allow") before the first session.
 
-Check the login once by hand before a session: `curl -u "$JIRA_USER" "$JIRA_URL/rest/api/2/myself"`.
+Check the login once before a session, from the project's repository, without typing the
+password: `python3 <kit>/skills/tracker/jira.py search 'project = ABC' --max 1`, where
+`<kit>` is the folder `lado kits add` installed the kit to, or
+`curl -u "$JIRA_USER:$JIRA_PASSWORD" "$JIRA_URL/rest/api/2/myself"`.
 A wrong password is never retried, since after failed logins (on some servers after the first) Jira
 asks for a CAPTCHA and refuses REST logins until you log in in a browser. If Jira's certificate is from a corporate CA,
 point `SSL_CERT_FILE` at a file with that CA; verification is never turned off. The script
