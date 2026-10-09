@@ -104,7 +104,8 @@ project.
   report it, not a request to fix). For `assign` only, a 401 without
   `X-Authentication-Denied-Reason` is no permission (exit 6) and a 404 an unknown user
   (exit 11), as Atlassian's REST v2 documents for that resource, and "no such user" is
-  said only for a login, never for unassigning; an unknown login is reported, never
+  said only for a login, never for unassigning (a 404 there is the task gone or not
+  visible, exit 7); an unknown login is reported, never
   guessed, and the exit-code table of SKILL.md says so in the row of 11. SKILL.md tells the agent what to do on each exit code,
   with one rule after "report it": wait for the answer when the step cannot go on without
   the tracker, otherwise go on. After Jira did not answer (exit 9) the agent sends Jira
@@ -112,15 +113,22 @@ project.
   (exit 1) or a 5xx (exit 12) on a write, Jira did answer, so the agent checks with `get`
   or `search` whether the write was applied before running it again. When a comment
   after a transition fails, the script's advice keeps the rule of the failure: after 9,
-  check with `get` only once told Jira answers again; after 429, report it and send the
-  comment only when told to. A refused login
+  check with `get` only once told Jira answers again; after a 5xx, check with `get`;
+  after a refused comment (11), fix the text the line names and send it again; after any
+  other failure (5, 6, 7, 10, 429), report it and send the comment only when told to.
+  A message not from the script is named in SKILL.md: a Python traceback is a crash
+  (exit 1, a write may have been applied); a message from `uv` or Python before the
+  script ran (it cannot open `jira.py`, uv cannot get Python or write its cache, uv's
+  exit 2) means nothing reached Jira: fix the path, or report it as exit 1. A refused login
   or CAPTCHA (exit 5) says in the script's own message that every agent stops using Jira
   until the human fixes it, so a lead without the skill learns it too. *Source:* brief,
   "Script behaviour on errors"; report 37181e0, F3.2, F5.1, F5.3, F7.1; trial artifact
   `trial-lado-session`, observation 2; report
   `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1, F3.4;
   report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (7bc2beb), F5.2, F12.1;
-  same report (full, b3e0aec), F3.1, F5.1, F5.3.
+  same report (full, b3e0aec), F3.1, F5.1, F5.3; report
+  `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (d6590ef), F3.1, F3.2, F5.1;
+  same report (cf31728), F3.3, F3.4, F5.5.
 - **R9** What agents write in Jira in the user's name is marked by the script: every
   comment and every created task's description starts with `[LADO: <agent>]` (sent as
   `\[LADO: <agent>\]`, since Jira shows a bare `[...]` as a broken link), the agent's
@@ -236,7 +244,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
-| 2026-10-09 | 1.2.0 | R4: `jira.py` run by `uv run --script`, `uv` in `expects.commands`, `dependencies.lado: ">=0.30"` (F10.1). R3: `whoami`; assignee as `Display Name (login)` or `unassigned` in `get`/`search` (F5.2); `assign` refuses a task held by another account unless `--reassign` (F12.1); pull request named in `link`, kit description "link a branch or commit to tasks" (F5.4). R5: the login also in `whoami` and assignees; `http://` to localhost (F5.5). R8: row 11 for `assign` (F5.1); "no such user" only for a login (F3.1); advice after a failed comment keeps the rules of 9 and 429 (F5.3). R9: look for `\[LADO: …\]` (F9.1) | The sdlc kit's requirements for `tracker` (session artifact `tracker-requirements-690cd7a8.md`); report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (full, b3e0aec), F3.1, F5.1–F5.5, F9.1, F10.1, F12.1; the human at the triage: "F10.1 — запускать скрипт с помощью uv и добавить uv в expects.commands", "1. да 2. да 3. все четыре 4. minor" |
+| 2026-10-09 | 1.2.0 | R4: `jira.py` run by `uv run --script`, `uv` in `expects.commands`, `dependencies.lado: ">=0.30"` (F10.1). R3: `whoami`; assignee as `Display Name (login)` or `unassigned` in `get`/`search` (F5.2); `assign` refuses a task held by another account unless `--reassign` (F12.1); pull request named in `link`, kit description "link a branch or commit to tasks" (F5.4). R5: the login also in `whoami` and assignees; `http://` to localhost (F5.5). R8: row 11 for `assign` (F5.1); "no such user" only for a login (F3.1); advice after a failed comment keeps the rules of 9 and 429 (F5.3). R9: look for `\[LADO: …\]` (F9.1). From the re-evaluations of the build: advice after a failed comment says report first after 4, 5, 6, 7, 10 and 429, and to fix a refused comment's text (d6590ef F5.1, cf31728 F3.4); a 404 on unassigning is the task gone or not visible, exit 7 (d6590ef F3.2, cf31728 F3.3); `assign` finds the holder by `name` or `key` (d6590ef F12.1); SKILL.md tells uv's and Python's messages from the script's, a traceback being a crash (d6590ef F3.1, cf31728 F5.5); SKILL.md names whose login is shown (d6590ef F5.2, F5.3); `.gitignore` for `__pycache__` | The sdlc kit's requirements for `tracker` (session artifact `tracker-requirements-690cd7a8.md`); report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (full, b3e0aec), F3.1, F5.1–F5.5, F9.1, F10.1, F12.1; the human at the triage: "F10.1 — запускать скрипт с помощью uv и добавить uv в expects.commands", "1. да 2. да 3. все четыре 4. minor"; reports `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (d6590ef, cf31728) and the human at the release gate: "исправить F5.5, F3.3, F3.4" |
 | 2026-10-09 | 1.1.0 | R3: `assign` and `label` actions, comment ids in `get`, description and Actions table name them; `--comment` counts for a required comment field (F3.2); `--resolution`/`--field` on a task already in the target status refused (F3.3). R6: status words `in progress`, `review`, `done` in the example. R8: after exit 1 or 5xx on a write, check with `get`/`search` before running it again (F3.1); unreadable `SSL_CERT_FILE` is exit 10 (F3.4). R12: `--wiki` also for wiki text that looks like Markdown (F5.1); parentheses in link URLs (F5.2). From the 1.1.0 evaluation (7bc2beb) and trial `trial-1.1.0`: an unknown login is reported, not guessed (F12.1); a refused unassign is named (F3.2); a comment after a transition failing with 9 or 5xx may have been added, check with `get` (F5.3); R8 names `assign`'s 401/404 (F5.2); R5: `assign` prints the login of `JIRA_USER`, not `me` | The sdlc kit's requirements T1–T5 (session artifact `tracker-jira-server-requirements-6a653014.md`); report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1–F3.4, F5.1, F5.2; the human: "согласен", "Да, всё как рекомендуешь"; the release gate: "Оставить F12.1/F5.3/F3.2, сделать F5.2, логин вместо me" |
 | 2026-10-09 | 1.0.2 | F5.1: code-block languages limited to Jira 8.13's list with synonyms, the rest and none → `{code:none}`; `transition --comment` posted separately when the transition has no comment field, and F5.6: also when the task is already in the target status (R3); the mark sent as `\[LADO: …\]` (R9); SKILL.md's false phrase "a code block … ends the list" removed | Trial artifact `trial-1.0.1` (test Jira Server 8.13.19, TEST-20), items 1–4; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (a0b8837), F5.1; the human: "Да, improve → 1.0.2 с пунктами 1–4"; report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (f20af91), F5.6, and the release gate: "исправить F5.6 и сразу проверить" |
 | 2026-10-09 | 1.0.1 | R12: Markdown in, converted to wiki markup by `jira.py` (minimal subset, raw fallback, `--wiki`); SKILL.md's wiki-markup section replaced; R7 no longer says "converts nothing". Fixed from report 1.0.1 (16909d7): F5.2 blank lines inside a list dropped, SKILL.md says a code block ends a numbered list; F5.3 wiki characters escaped inside `{{…}}`; F5.4 images `![alt](url)` pass as they are; F5.5 SKILL.md: one paragraph per line. F5.1 (code-block languages) waits for the test-Jira trial. Patch, not minor, by the human's decision: the kit is not yet published | The human's request, 2026-10-09 (messages #1253, #1263, #1279); report `kit-reports/tracker-jira-server-1.0.0-2026-10-08.md` (1240f8d), 0 findings; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (16909d7) and the release gate: "давай починим F5.2 - F5.5, а потом займемся тестированием" |

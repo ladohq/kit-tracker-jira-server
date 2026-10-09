@@ -750,7 +750,7 @@ def cmd_transition(jira, args):
             elif unsure:
                 advice = check
             elif failure.code == REFUSED:
-                advice = "send the comment with comment"
+                advice = "fix the text the line names, then send the comment with comment"
             else:
                 advice = "report it; send the comment with comment once you are told to"
             raise Failure(failure.code, "%s done, but %s (do not run the transition again; "
@@ -816,10 +816,12 @@ def cmd_assign(jira, args):
         if failure.status == 401 and not failure.denied:
             raise Failure(NO_ACCESS, "no permission to assign %s (401)" % args.key)
         if login is None:
-            if failure.code in (NOT_FOUND, REFUSED):
+            if failure.code == NOT_FOUND:
+                raise Failure(NOT_FOUND, "Jira refused to unassign %s: the task is gone or "
+                                         "not visible to you (404)" % args.key)
+            if failure.code == REFUSED:
                 raise Failure(REFUSED, "Jira refused to unassign %s: %s"
-                              % (args.key, failure.message
-                                 if failure.status != 404 else "404"))
+                              % (args.key, failure.message))
             raise
         if failure.code in (NOT_FOUND, REFUSED):
             raise Failure(REFUSED, "Jira refused to assign %s to %s: no such user, or the "

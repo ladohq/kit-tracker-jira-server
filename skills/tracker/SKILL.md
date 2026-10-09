@@ -119,11 +119,13 @@ Read it when you need the project's words; the user changes it, not you.
 
 ## When the script fails
 
-It prints one line saying what happened and stops; it never retries. A message that does
-not start with `jira.py` or `usage: jira.py` comes from `uv` or Python, not the script, and
-nothing reached Jira: if it says it cannot open `jira.py`, fix the path (see above);
-otherwise (uv could not get Python or write its cache; its exit 2 is not wrong arguments)
-treat it as exit 1 and report all of it. To **report** a
+It prints one line saying what happened and stops; it never retries. A Python traceback
+(`Traceback …`) is the script crashing: exit 1, and a write may have been applied (row 1
+and the end of this section). Any other message that does not start with `jira.py` or
+`usage: jira.py` comes from `uv` or Python before the script ran, so nothing reached Jira:
+if it says it cannot open `jira.py`, fix the path (see above); otherwise (uv could not get
+Python or write its cache; its exit 2 is not wrong arguments) report all of it as exit 1.
+To **report** a
 failure: as a worker, send the supervisor that line and the command with `send_message`;
 as the lead, tell the human. Then wait for the answer if your step cannot go on without
 the tracker; otherwise go on with it. Act on the exit code:

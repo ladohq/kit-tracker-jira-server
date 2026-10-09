@@ -509,6 +509,7 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(code, jira.REFUSED)
         self.assertEqual(len(err.strip().splitlines()), 1)
         self.assertIn("In Progress -> Code Review done, but the comment was not added", err)
+        self.assertIn("fix the text the line names, then send the comment with comment", err)
         self.assertIn("do not run the transition again", err)
         self.assertEqual(len(self.sent("POST", "issue/TEST-1/transitions")), 1)
 
@@ -820,7 +821,8 @@ class ErrorsTest(JiraTestCase):
             "assignee": {"name": "agent.user"}}})
         self.jira.route("PUT", "issue/TEST-1/assignee",
                         {"errorMessages": ["Issue Does Not Exist"]}, status=404)
-        err = self.assertFails(jira.REFUSED, "Jira refused to unassign TEST-1: 404",
+        err = self.assertFails(jira.NOT_FOUND, "Jira refused to unassign TEST-1: the task is "
+                               "gone or not visible to you (404)",
                                "assign", "TEST-1", "none")
         self.assertNotIn("no such user", err)
         self.assertNotIn("check the key", err)
