@@ -57,10 +57,7 @@ project.
   `/rest/api/2/issue/createmeta/{project}/issuetypes[/{id}]`; epics through the Epic Link
   custom field (an epic needs Epic Name; `parent` is for sub-tasks only); remote links by
   `/rest/api/2/issue/{key}/remotelink`; TLS verified through the system store or
-  `SSL_CERT_FILE`, never disabled. SKILL.md teaches Jira wiki markup (`h2.`, `*bold*`,
-  `{code}`, `[text|url]`, lists, `[~username]`) briefly, its coverage checked against the
-  structure of netresearch's `jira-syntax` skill (headings, code, tables, mentions,
-  panels; no text copied, the skill is CC-BY-SA); the script converts nothing.
+  `SSL_CERT_FILE`, never disabled. Text goes to Jira as wiki markup (R12).
   *Source:* brief, section "Jira Server / Data Center 8.13".
 - **R8** Each failure is one plain line saying what happened and what to do, with an exit
   code per kind, and is never guessed over or retried: task not found (404), no access
@@ -85,6 +82,20 @@ project.
   comment or link only when the agent's role, its step or the human asks for it, and only
   on the tasks named. A process kit's roles and steps may allow more. *Source:* critic's
   finding F12.1 and Question 1; the human agreed at the second design visit.
+- **R12** Agents write the text they send to Jira (`comment`, `create --description`,
+  `transition --comment`) in Markdown; `jira.py` converts it to Jira wiki markup before
+  adding the mark (R9), keeping the formatting of a minimal subset: headings, bold,
+  italic, inline code, fenced code blocks (with their language), bullet and numbered
+  lists (nested), links. Everything else, including wiki-special characters (`{`, `[`,
+  `|`) in plain text, passes as it is, so `[~login]` mentions keep working; if the
+  converter fails, the original text is sent. A flag `--wiki` sends the text unconverted,
+  for wiki markup Markdown lacks (panels, `{noformat}`). `create --field
+  description=...` is never converted. `get` prints Jira's raw wiki markup, with no
+  reverse conversion (added later if needed). SKILL.md says "write Markdown" and names
+  `--wiki`, instead of teaching wiki markup. *Source:* the human, 2026-10-09 (session
+  kit-tracker-jira-server, messages #1253, #1263; triage of run
+  `improve/tracker-jira-server-markdown`: "согласен со всеми вопросами, кроме вопроса 2";
+  minimal subset: "давай сделаем пока минимальный"; target Jira 8.13).
 - **R10** Release: v0.1.x were tried on a test Jira Server 8.13.19 (the script, artifact
   `trial-test-server`; a live LADO session with a throwaway process kit, artifact
   `trial-lado-session`); these trials stand for the trial on the human's real Jira.
@@ -125,9 +136,9 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 | Element | Kind | Covers | Why it exists / why nothing simpler |
 |---|---|---|---|
 | `kit.yaml` | manifest | R2 | name, version, description; no `supervisor:` (the kit never leads a session) and no `dependencies.skills` |
-| `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R6, R7, R8, R9, R11 | the one skill the convention names; how to run each action, Jira wiki markup, where the settings are and their format with an example, what each exit code means and what to do; no project-specific values |
-| `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `transition`, `comment`, `link`; reads env credentials and `.lado/tracker.yaml`; adds the mark |
-| `tests/test_jira.py` | tests (outside the skill) | R7, R8, R9, R10 | the trials run on a test Jira, so the script's requests, the YAML subset, the mark and every error path are checked before it against a local fake Jira (standard library `unittest` and `http.server`); outside `skills/` so it does not ship into agents' skill folders |
+| `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R6, R7, R8, R9, R11, R12 | the one skill the convention names; how to run each action, write Markdown (`--wiki` for raw wiki markup), where the settings are and their format with an example, what each exit code means and what to do; no project-specific values |
+| `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R12 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `transition`, `comment`, `link`; reads env credentials and `.lado/tracker.yaml`; converts Markdown to wiki markup; adds the mark |
+| `tests/test_jira.py` | tests (outside the skill) | R7, R8, R9, R10, R12 | the trials run on a test Jira, so the script's requests, the YAML subset, the mark and every error path are checked before it against a local fake Jira (standard library `unittest` and `http.server`); outside `skills/` so it does not ship into agents' skill folders |
 | `README.md` | doc | R2, R5, R6 | how to add the kit to a session, set the credentials and write a project's `.lado/tracker.yaml` |
 
 Reverse check:
@@ -141,6 +152,7 @@ Reverse check:
 - R8: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R9: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R11: `tracker` skill.
+- R12: `tracker` skill, `jira.py`, `tests/test_jira.py`.
 - R10: `tests/test_jira.py`; the release and the sandbox trial before it are the run's
   steps, not a kit file.
 
@@ -166,6 +178,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-09 | 1.0.1 | R12: Markdown in, converted to wiki markup by `jira.py` (minimal subset, raw fallback, `--wiki`); SKILL.md's wiki-markup section replaced; R7 no longer says "converts nothing". Patch, not minor, by the human's decision: the kit is not yet published | The human's request, 2026-10-09 (messages #1253, #1263, #1279); report `kit-reports/tracker-jira-server-1.0.0-2026-10-08.md` (1240f8d), 0 findings |
 | 2026-10-08 | 1.0.0 | Supported versions named as Jira 8.4 or newer | Report `kit-reports/tracker-jira-server-0.1.1-2026-10-08.md` (37181e0), F5.2 |
 | 2026-10-08 | 1.0.0 | README: personal access tokens not supported; login check without typing the password | Same report, F5.4, F12.3 |
 | 2026-10-08 | 1.0.0 | Exit 9: no more requests to Jira until it answers again (script message and SKILL.md); one rule after "report it" | Trial artifact `trial-lado-session`, observation 2 (2 x 30 s); same report, F5.3, F5.1 |
