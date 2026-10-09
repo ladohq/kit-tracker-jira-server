@@ -1,8 +1,11 @@
 name: tracker-jira-server
-version: 1.1.0
+version: 1.2.0
 description: >-
   The tracker skill for Jira Server / Data Center 8.4 or newer: find, read, create, move, comment
-  on, assign, label and link tasks through REST API v2, with a standard-library Python script. No agents:
-  add it to a session next to a process kit.
+  on, assign and label tasks, link a branch or commit to tasks, and say which account it works
+  as, through REST API v2, with a standard-library Python script run by uv. No agents: add it to
+  a session next to a process kit.
 dependencies:
-  lado: ">=0.27"
+  lado: ">=0.30"
+expects:
+  commands: [uv]

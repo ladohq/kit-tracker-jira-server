@@ -1,6 +1,6 @@
 """Tests of skills/tracker/jira.py against a fake Jira on localhost.
 
-Run from the repository root: python3 -m unittest discover -s tests
+Run from the repository root: uv run --no-project python -m unittest discover -s tests
 Standard library only; the TLS test needs the `openssl` command and is skipped without it.
 """
 
@@ -149,7 +149,8 @@ class JiraTestCase(unittest.TestCase):
             except SystemExit as exit:
                 code = exit.code
         self.assertNotIn(PASSWORD, out.getvalue() + err.getvalue())
-        if argv[:1] != ("assign",):  # assign prints the assignee, JIRA_USER's login too
+        # assign and whoami print accounts as Jira shows them, JIRA_USER's login too.
+        if argv[:1] not in (("assign",), ("whoami",)):
             self.assertNotIn("agent.user", out.getvalue() + err.getvalue())
         return code, out.getvalue(), err.getvalue()
 
@@ -298,6 +299,7 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("TEST-1  Fix login", out)
         self.assertIn("Status: Open", out)
+        self.assertIn("Assignee: Ann (ann)", out)
         self.assertIn("Epic: TEST-9", out)
         self.assertIn("h2. Steps", out)
         self.assertIn("Comments: 7, the last 2 shown", out)
@@ -315,12 +317,15 @@ class CommandsTest(JiraTestCase):
         code, out, err = self.run_jira("get", "TEST-2")
         self.assertEqual(code, 0, err)
         self.assertIn("Comments: none", out)
+        self.assertIn("Assignee: unassigned", out)
         self.assertNotIn("shown", out)
 
     def test_search_pages_and_project_placeholder(self):
         self.jira.route("GET", "search", {"startAt": 20, "total": 45, "issues": [
             {"key": "TEST-%d" % i, "fields": {"summary": "s", "status": {"name": "Open"},
-                                             "issuetype": {"name": "Task"}}}
+                                             "issuetype": {"name": "Task"},
+                                             "assignee": {"name": "ann", "displayName": "Ann"}
+                                             if i else None}}
             for i in range(20)]})
         code, out, err = self.run_jira("search", "project = {project} AND status = Open",
                                        "--start", "20")
@@ -330,6 +335,16 @@ class CommandsTest(JiraTestCase):
         self.assertEqual((query["startAt"], query["maxResults"]), ("20", "20"))
         self.assertIn("Tasks 21-40 of 45", out)
         self.assertIn("More: run again with --start 40", out)
+        self.assertIn("TEST-0  [Open]  Task  s  (unassigned)", out)
+        self.assertIn("TEST-1  [Open]  Task  s  (Ann (ann))", out)
+
+    def test_whoami(self):
+        self.jira.route("GET", "myself", {"name": "agent.user", "displayName": "Agent User",
+                                          "emailAddress": "agent@example.com"})
+        code, out, err = self.run_jira("whoami")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "You work as Agent User (agent.user)\n")
+        self.assertNotIn("127.0.0.1", out + err)
 
     def route_createmeta(self, required=()):
         self.jira.route("GET", "issue/createmeta/TEST/issuetypes", {"values": [
@@ -503,10 +518,27 @@ class CommandsTest(JiraTestCase):
         code, _, err = self.run_jira("transition", "TEST-1", "review", "--comment", "x")
         self.assertEqual(code, jira.SERVER_ERROR)
         self.assertIn("done, but the comment may not have been added", err)
-        self.assertIn("check with get, then send the comment", err)
+        self.assertIn("(do not run the transition again; check with get, then send the "
+                      "comment", err)
         self.jira.route("POST", "issue/TEST-1/comment", None, status=429)
         code, _, err = self.run_jira("transition", "TEST-1", "review", "--comment", "x")
         self.assertIn("done, but the comment was not added", err)
+        self.assertIn("report it; send the comment with comment once you are told to", err)
+
+    def test_transition_done_but_comment_unreachable_waits_first(self):
+        self.route_transitions()
+        event = threading.Event()
+        self.addCleanup(event.set)
+        handler = self.jira.server.RequestHandlerClass
+        posts = handler.do_POST
+        handler.do_POST = lambda request: (
+            event.wait(5) if request.path.endswith("/comment") else posts(request))
+        self.addCleanup(setattr, handler, "do_POST", posts)
+        with mock.patch.object(jira, "TIMEOUT", 0.3):
+            code, _, err = self.run_jira("transition", "TEST-1", "review", "--comment", "x")
+        self.assertEqual(code, jira.UNREACHABLE, err)
+        self.assertIn("the comment may not have been added", err)
+        self.assertIn("once you are told Jira answers again, check with get", err)
 
     def test_transition_names_required_fields(self):
         self.route_transitions(required=True)
@@ -581,15 +613,38 @@ class CommandsTest(JiraTestCase):
         self.jira.route("PUT", "issue/TEST-1/assignee", None, status=204)
 
     def test_assign(self):
-        self.route_assignee("ann")
+        self.route_assignee(None)
         code, out, err = self.run_jira("assign", "TEST-1", "bob")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, "TEST-1: assignee ann -> bob\n")
+        self.assertEqual(out, "TEST-1: assignee unassigned -> bob\n")
         self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[0]["body"], {"name": "bob"})
         code, out, err = self.run_jira("assign", "TEST-1", "me")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, "TEST-1: assignee ann -> agent.user\n")
+        self.assertEqual(out, "TEST-1: assignee unassigned -> agent.user\n")
         self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[1]["body"],
+                         {"name": "agent.user"})
+        self.route_assignee("Agent.User")
+        code, out, err = self.run_jira("assign", "TEST-1", "bob")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: assignee Agent.User -> bob\n")
+
+    def test_assign_refuses_a_task_held_by_another_account(self):
+        self.route_assignee("ann")
+        for user in ("me", "bob", "none"):
+            code, out, err = self.run_jira("assign", "TEST-1", user)
+            self.assertEqual(code, jira.REFUSED, err)
+            self.assertIn("TEST-1 is assigned to Someone (ann), another account: not "
+                          "changed", err)
+            self.assertIn("--reassign", err)
+            self.assertEqual(out, "")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee"), [])
+
+    def test_assign_reassign_takes_it_from_another_account(self):
+        self.route_assignee("ann")
+        code, out, err = self.run_jira("assign", "TEST-1", "me", "--reassign")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: assignee ann -> agent.user\n")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[0]["body"],
                          {"name": "agent.user"})
 
     def test_unassign(self):
@@ -726,12 +781,29 @@ class ErrorsTest(JiraTestCase):
 
     def test_unassign_refused_names_the_reason(self):
         self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
-            "assignee": {"name": "ann"}}})
+            "assignee": {"name": "agent.user"}}})
         self.jira.route("PUT", "issue/TEST-1/assignee",
                         {"errors": {"assignee": "Issues must be assigned."}}, status=400)
         err = self.assertFails(jira.REFUSED, "Jira refused to unassign TEST-1: Jira refused "
                                "the values: assignee (Issues must be assigned.)",
                                "assign", "TEST-1", "none")
+        self.assertNotIn("no such user", err)
+
+    def test_unassign_answered_404_is_not_an_unknown_user(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
+            "assignee": {"name": "agent.user"}}})
+        self.jira.route("PUT", "issue/TEST-1/assignee",
+                        {"errorMessages": ["Issue Does Not Exist"]}, status=404)
+        err = self.assertFails(jira.NOT_FOUND, "task TEST-1 not found",
+                               "assign", "TEST-1", "none")
+        self.assertNotIn("no such user", err)
+
+    def test_assign_answer_not_from_jira_is_not_an_unknown_user(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {"assignee": None}})
+        self.jira.route("PUT", "issue/TEST-1/assignee", Raw(b"<html>Not Found</html>"),
+                        status=404)
+        err = self.assertFails(jira.SETUP, "JIRA_URL is not Jira's base address",
+                               "assign", "TEST-1", "bob")
         self.assertNotIn("no such user", err)
 
     def test_assign_unknown_user(self):

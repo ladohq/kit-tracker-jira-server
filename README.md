@@ -2,8 +2,8 @@
 
 A LADO kit for Jira Server and Data Center 8.4 or newer. It gives the roles of any process kit a
 skill named `tracker` that finds, reads, creates, moves, comments on, assigns and labels
-tasks and links a branch or commit to them, through Jira's REST API v2 and a script on Python's standard
-library (no MCP server). Jira Cloud is not supported.
+tasks, links a branch or commit to them and says which account it works as, through Jira's
+REST API v2 and a script on Python's standard library, run by `uv` (no MCP server). Jira Cloud is not supported.
 
 The kit has no agents and no flows: it adds the skill to a session led by a process kit.
 A process kit's roles say "use the tracker skill"; a role that cannot work without it
@@ -18,7 +18,9 @@ lado kits add https://github.com/ladohq/kit-tracker-jira-server
 lado start <repo> --kit <process-kit> --kit tracker-jira-server
 ```
 
-The agents need `python3` (3.9 or newer) and a network path to Jira (VPN, if yours needs it).
+The agents need `uv` on their PATH (it runs the script and finds or installs the Python 3.9
+or newer it names; a session without `uv` does not start) and a network path to Jira (VPN,
+if yours needs it).
 
 ## Credentials
 
@@ -39,12 +41,13 @@ stalls every agent's start: run the line once in a new terminal and allow `secur
 read the item ("Always Allow") before the first session.
 
 Check the login once before a session, from the project's repository, without typing the
-password: `python3 <kit>/skills/tracker/jira.py search 'project = ABC' --max 1`, where
+password: `uv run --quiet --script <kit>/skills/tracker/jira.py whoami`, where
 `<kit>` is the kit's folder (`lado kits show tracker-jira-server` prints it).
 A wrong password is never retried, since after failed logins (on some servers after the first) Jira
 asks for a CAPTCHA and refuses REST logins until you log in in a browser. If Jira's certificate is from a corporate CA,
 point `SSL_CERT_FILE` at a file with that CA; verification is never turned off. The script
-refuses a `JIRA_URL` that is not `https://`, since the password goes with every request.
+refuses a `JIRA_URL` that is not `https://` (or `http://` to localhost, for tests), since
+the password goes with every request.
 
 ## Project settings: `.lado/tracker.yaml`
 
@@ -81,7 +84,7 @@ kit says which roles touch the tracker and when, and may allow more.
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests     # the script against a fake Jira on localhost
+uv run --no-project python -m unittest discover -s tests   # the script against a fake Jira on localhost
 lado kits check .
 ```
 

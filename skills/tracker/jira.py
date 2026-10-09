@@ -1,12 +1,17 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
 """Jira Server / Data Center 8.4 or newer from the command line: REST API v2, Basic auth.
 
-Commands: get, search, create, transition, comment, assign, label, link (run with --help).
-Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD; the password and JIRA_URL are
-never printed, the login only as an assignee by assign.
+Commands: get, search, create, transition, comment, assign, label, link, whoami (run with
+--help). Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD; the password and
+JIRA_URL are never printed, the login only as an account Jira shows anyway: an assignee,
+or whoami's answer.
 Text sent to Jira is Markdown, converted to Jira wiki markup (--wiki sends it as it is).
 Project settings come from .lado/tracker.yaml, found from the current directory up to
-the repository root. Python standard library only.
+the repository root. Python standard library only, run by `uv run --script`.
 """
 
 import argparse
@@ -530,6 +535,17 @@ def _name(value, attr="name"):
     return value or "-"
 
 
+def _person(user):
+    """An account as Jira shows an assignee, comparable with whoami: 'Name (login)'."""
+    if not user:
+        return "unassigned"
+    login = user.get("name") or user.get("key")
+    name = user.get("displayName")
+    if name and login and name != login:
+        return "%s (%s)" % (name, login)
+    return login or name or "?"
+
+
 def cmd_get(jira, args):
     config = load_config(required=False)
     names = list(GET_FIELDS)
@@ -544,7 +560,7 @@ def cmd_get(jira, args):
         _name(fields.get("issuetype")), _name(fields.get("status")),
         _name(fields.get("priority"))))
     print("Assignee: %s   Reporter: %s" % (
-        _name(fields.get("assignee")), _name(fields.get("reporter"))))
+        _person(fields.get("assignee")), _name(fields.get("reporter"))))
     if fields.get("labels"):
         print("Labels: " + ", ".join(fields["labels"]))
     if fields.get("parent"):
@@ -584,7 +600,7 @@ def cmd_search(jira, args):
         fields = issue.get("fields") or {}
         print("%s  [%s]  %s  %s  (%s)" % (
             issue.get("key"), _name(fields.get("status")), _name(fields.get("issuetype")),
-            fields.get("summary"), _name(fields.get("assignee"))))
+            fields.get("summary"), _person(fields.get("assignee"))))
     if start + len(issues) < total:
         print("More: run again with --start %d" % (start + len(issues)))
     return OK
@@ -723,14 +739,21 @@ def cmd_transition(jira, args):
             moved += ", comment %s added" % _add_comment(jira, args.key, comment)
         except Failure as failure:
             # No answer or a 5xx may follow a comment Jira did add; a 429 runs nothing.
+            # The advice keeps the failure's own rule: wait after 9, report a 429.
+            rate_limited = failure.status == 429
             unsure = failure.code == UNREACHABLE or (failure.code == SERVER_ERROR
-                                                     and failure.status != 429)
+                                                     and not rate_limited)
+            check = "check with get, then send the comment with comment if it is not there"
+            if failure.code == UNREACHABLE:
+                advice = "once you are told Jira answers again, " + check
+            elif rate_limited:
+                advice = "report it; send the comment with comment once you are told to"
+            else:
+                advice = check if unsure else "send the comment with comment"
             raise Failure(failure.code, "%s done, but %s (do not run the transition again; "
                                         "%s): %s" % (
                 moved, "the comment may not have been added" if unsure
-                else "the comment was not added",
-                "check with get, then send the comment with comment if it is not there"
-                if unsure else "send the comment with comment", failure.message))
+                else "the comment was not added", advice, failure.message))
     print(moved)
     return OK
 
@@ -770,10 +793,17 @@ def cmd_assign(jira, args):
     login = {"me": os.environ["JIRA_USER"], "none": None}.get(args.user, args.user)
     path = "issue/%s" % urllib.parse.quote(args.key)
     issue = jira.call("GET", path, {"fields": "assignee"}, missing=missing_issue(args.key))
-    current = ((issue.get("fields") or {}).get("assignee") or {}).get("name")
+    holder = (issue.get("fields") or {}).get("assignee")
+    current = (holder or {}).get("name")
     if (current or "").lower() == (login or "").lower():
         print("%s: assignee %s already, nothing changed" % (args.key, _user(current)))
         return OK
+    # Taking a task from another account is the human's decision, never a side effect.
+    mine = os.environ["JIRA_USER"].lower()
+    if current and current.lower() != mine and not args.reassign:
+        raise Failure(REFUSED, "%s is assigned to %s, another account: not changed; "
+                               "report it, and add --reassign only when the human or your "
+                               "step says to take it from them" % (args.key, _person(holder)))
     try:
         jira.call("PUT", path + "/assignee", body={"name": login},
                   missing=missing_issue(args.key), sent=None)
@@ -782,16 +812,24 @@ def cmd_assign(jira, args):
         # unknown user; the GET above has just passed the login and found the task.
         if failure.status == 401 and not failure.denied:
             raise Failure(NO_ACCESS, "no permission to assign %s (401)" % args.key)
-        if login is None and failure.code == REFUSED:
-            raise Failure(REFUSED, "Jira refused to unassign %s: %s"
-                          % (args.key, failure.message))
-        if failure.status == 404 or failure.code == REFUSED:
+        if login is None:
+            if failure.code == REFUSED:
+                raise Failure(REFUSED, "Jira refused to unassign %s: %s"
+                              % (args.key, failure.message))
+            raise
+        if failure.code in (NOT_FOUND, REFUSED):
             raise Failure(REFUSED, "Jira refused to assign %s to %s: no such user, or the "
                                    "user cannot be assigned in this project (%s)"
                           % (args.key, _user(login), failure.message
                              if failure.status != 404 else "404"))
         raise
     print("%s: assignee %s -> %s" % (args.key, _user(current), _user(login)))
+    return OK
+
+
+def cmd_whoami(jira, args):
+    me = jira.call("GET", "myself")
+    print("You work as %s" % _person(me or {}))
     return OK
 
 
@@ -892,6 +930,8 @@ def parser():
     p = sub.add_parser("assign", help="assign a task to you, to a login, or to nobody")
     p.add_argument("key")
     p.add_argument("user", help="'me' (JIRA_USER), a login, or 'none' to unassign")
+    p.add_argument("--reassign", action="store_true",
+                   help="also when another account holds the task (refused otherwise)")
     p.set_defaults(run=cmd_assign)
 
     p = sub.add_parser("label", help="add or remove labels, the task's others untouched")
@@ -905,6 +945,9 @@ def parser():
     p.add_argument("url")
     p.add_argument("--title", help="link text (default: the URL)")
     p.set_defaults(run=cmd_link)
+
+    p = sub.add_parser("whoami", help="the account you work as: display name (login)")
+    p.set_defaults(run=cmd_whoami)
     return top
 
 

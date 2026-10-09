@@ -3,7 +3,7 @@ name: tracker
 description: >-
   The project's task tracker on Jira Server / Data Center: find tasks by JQL, read one,
   create one (also under an epic), change its status, comment, assign it, add or remove
-  labels, link a branch or commit. Use whenever your work touches a task in the tracker,
+  labels, link a branch or commit, say which account you work as. Use whenever your work touches a task in the tracker,
   e.g. "file a bug", "take the task", "assign it to me", "move it to review", "mark it
   waiting for release", "close it", "tell the task what changed".
 ---
@@ -14,7 +14,7 @@ You reach Jira only through the script in this skill's folder, from inside the p
 repository (it reads the project's settings there):
 
 ```bash
-python3 ${SKILL_DIR}/jira.py <command> ...      # --help on any command
+uv run --quiet --script ${SKILL_DIR}/jira.py <command> ...      # --help on any command
 ```
 
 If your CLI does not expand `${SKILL_DIR}`, use the folder this SKILL.md is in. The
@@ -37,9 +37,10 @@ steps may allow more.
 | see where a task can go | `transition KEY-1` |
 | change its status | `transition KEY-1 '<status or transition>' [--resolution Fixed] [--comment -] [--wiki]` |
 | comment | `comment KEY-1 - [--wiki]` (the text on stdin) |
-| assign a task | `assign KEY-1 <me \| login \| none>` (`none` unassigns) |
+| assign a task | `assign KEY-1 <me \| login \| none> [--reassign]` (`none` unassigns) |
 | add or remove labels | `label KEY-1 [--add L ...] [--remove L ...]` |
 | link a branch, commit or pull request | `link KEY-1 <url> [--title '<text>']` |
+| see which account you work as | `whoami` |
 
 The `link` URL is the branch's or commit's page on the repository's host; a repository
 with no remote has no such page, so give the branch and the commit hash in a `comment`.
@@ -59,16 +60,21 @@ with no remote has no such page, so give the branch and the commit hash in a `co
   (exit 8): add `--resolution`, `--field` or `--comment`.
 - **comment**, **transition --comment**: print the new comment's id; `get` shows the
   same id on each comment, so look for it there to see that your comment is in. If
-  `transition --comment` prints no id, find your `[LADO: …]` comment in `get`.
+  `transition --comment` prints no id, find your `\[LADO: …\]` comment in `get`, as Jira keeps it escaped.
+- **get**, **search**, **whoami** show an account as `Display Name (login)`, a task with
+  no assignee as `unassigned`. To tell whether a task is yours, compare the login of its
+  assignee with the one `whoami` prints.
 - **assign**: use only a login you were given; on exit 11 report it and do not try
-  another login, since a guess may assign the task to someone else.
+  another login, since a guess may assign the task to someone else. A task another
+  account holds is refused (exit 11, the holder named) whatever the target: report it,
+  and add `--reassign` only when the human or your step says to take it from them.
 - **assign**, **label**: when the task is already so, they change nothing and say so;
   that is success. `label` leaves the task's other labels as they are and prints its
   labels; a label is one word, no spaces (`waiting_for_release`).
 - Text of more than one line goes on stdin with `-`:
 
   ```bash
-  python3 ${SKILL_DIR}/jira.py comment KEY-1 - <<'EOF'
+  uv run --quiet --script ${SKILL_DIR}/jira.py comment KEY-1 - <<'EOF'
   **Done:** the login form checks the password length.
   EOF
   ```
@@ -112,7 +118,9 @@ Read it when you need the project's words; the user changes it, not you.
 
 ## When the script fails
 
-It prints one line saying what happened and stops; it never retries. To **report** a
+It prints one line saying what happened and stops; it never retries. A line that does
+not start with `jira.py` or `usage: jira.py` comes from `uv`, which runs the script (it
+could not find or install the Python the script needs): treat it as exit 1. To **report** a
 failure: as a worker, send the supervisor that line and the command with `send_message`;
 as the lead, tell the human. Then wait for the answer if your step cannot go on without
 the tracker; otherwise go on with it. Act on the exit code:
@@ -129,7 +137,7 @@ the tracker; otherwise go on with it. Act on the exit code:
 | 8 | Jira needs fields (named) | give them and run again; if you cannot know the values, report it |
 | 9 | Jira not reachable or did not answer | report it (VPN or company network?) and send Jira nothing more until you are told it answers again |
 | 10 | TLS failed | report it: a corporate CA goes in a file named by `SSL_CERT_FILE` |
-| 11 | Jira refused the request (bad JQL, a refused field value, unknown type, transition not open) | read the line, fix the request once; if it still fails, report it |
+| 11 | Jira refused the request (bad JQL, a refused field value, unknown type, transition not open), or `assign` refused a task another account holds | read the line, fix the request once; if it still fails, report it (`assign`: report it, never try another login or `--reassign` on your own) |
 | 12 | Jira itself failed (5xx), or it is rate limiting requests (429) | report it |
 
 A failed write may have been applied. After exit 9 on a write, once you are told Jira
