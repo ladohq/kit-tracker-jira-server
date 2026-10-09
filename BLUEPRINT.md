@@ -28,7 +28,8 @@ project.
   (`transition`: without a target it lists the available transitions; when the transition
   screen requires fields it names them; a `--comment` on a transition whose screen has no
   comment field, or that has no screen, is posted as a separate comment after it, since
-  Jira silently drops it otherwise), comment (`comment`), link a branch or commit URL
+  Jira silently drops it otherwise; on a task already in the target status it is posted
+  as a comment, with no transition), comment (`comment`), link a branch or commit URL
   (`link`, a remote link; with no URL, e.g. a repository without a remote, the branch and
   hash go in a `comment`). Nothing else (no delete, assign, user search,
   attachments, boards or sprints); more commands are added when a project needs them.
@@ -183,7 +184,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
-| 2026-10-09 | 1.0.2 | F5.1: code-block languages limited to Jira 8.13's list with synonyms, the rest and none → `{code:none}`; `transition --comment` posted separately when the transition has no comment field (R3); the mark sent as `\[LADO: …\]` (R9); SKILL.md's false phrase "a code block … ends the list" removed | Trial artifact `trial-1.0.1` (test Jira Server 8.13.19, TEST-20), items 1–4; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (a0b8837), F5.1; the human: "Да, improve → 1.0.2 с пунктами 1–4" |
+| 2026-10-09 | 1.0.2 | F5.1: code-block languages limited to Jira 8.13's list with synonyms, the rest and none → `{code:none}`; `transition --comment` posted separately when the transition has no comment field, and F5.6: also when the task is already in the target status (R3); the mark sent as `\[LADO: …\]` (R9); SKILL.md's false phrase "a code block … ends the list" removed | Trial artifact `trial-1.0.1` (test Jira Server 8.13.19, TEST-20), items 1–4; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (a0b8837), F5.1; the human: "Да, improve → 1.0.2 с пунктами 1–4"; report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (f20af91), F5.6, and the release gate: "исправить F5.6 и сразу проверить" |
 | 2026-10-09 | 1.0.1 | R12: Markdown in, converted to wiki markup by `jira.py` (minimal subset, raw fallback, `--wiki`); SKILL.md's wiki-markup section replaced; R7 no longer says "converts nothing". Fixed from report 1.0.1 (16909d7): F5.2 blank lines inside a list dropped, SKILL.md says a code block ends a numbered list; F5.3 wiki characters escaped inside `{{…}}`; F5.4 images `![alt](url)` pass as they are; F5.5 SKILL.md: one paragraph per line. F5.1 (code-block languages) waits for the test-Jira trial. Patch, not minor, by the human's decision: the kit is not yet published | The human's request, 2026-10-09 (messages #1253, #1263, #1279); report `kit-reports/tracker-jira-server-1.0.0-2026-10-08.md` (1240f8d), 0 findings; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (16909d7) and the release gate: "давай починим F5.2 - F5.5, а потом займемся тестированием" |
 | 2026-10-08 | 1.0.0 | Supported versions named as Jira 8.4 or newer | Report `kit-reports/tracker-jira-server-0.1.1-2026-10-08.md` (37181e0), F5.2 |
 | 2026-10-08 | 1.0.0 | README: personal access tokens not supported; login check without typing the password | Same report, F5.4, F12.3 |
