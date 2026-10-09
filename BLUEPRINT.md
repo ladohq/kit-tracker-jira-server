@@ -21,7 +21,7 @@ project.
   skill, named `tracker`, so a process kit's roles say "use the tracker skill" and a role
   that cannot work without it lists `skills: [tracker]`. Jira Cloud is out of scope (a
   later `tracker-jira-cloud` kit). *Source:* brief, settled 1–2, 7; Out of scope.
-- **R3** The skill does eight actions and says in its own words how to do each: find tasks
+- **R3** The skill does nine actions and says in its own words how to do each: find tasks
   by JQL (`search`, paged by `startAt`/`maxResults`), read a task (`get`: fields, status,
   description, recent comments, each with its id, the id `comment` prints), create a task (`create`: issue type, summary,
   description, optionally an epic through the Epic Link field), change its status
@@ -32,29 +32,47 @@ project.
   Jira silently drops it otherwise; on a task already in the target status it is posted
   as a comment, with no transition, while `--resolution` or `--field` there is refused
   (exit 11) rather than dropped), comment (`comment`), assign a task (`assign`: to
-  `JIRA_USER`, to a login, or unassigned; already so is success; one line before -> after),
+  `JIRA_USER`, to a login, or unassigned; already so is success; one line before -> after;
+  a task held by another account is refused with that account named, unless
+  `--reassign`, which the agent passes only when the human or its step says so),
   add or remove labels on a task (`label`: other labels untouched; already so is success;
-  prints the task's labels; a label with a space is exit 2 before any request), link a branch or commit URL
+  prints the task's labels; a label with a space is exit 2 before any request), say which
+  account the skill works as (`whoami`: login and display name from `/rest/api/2/myself`,
+  never the password; SKILL.md names it by meaning, "which account do you work as"),
+  link a branch, commit or pull request URL
   (`link`, a remote link; with no URL, e.g. a repository without a remote, the branch and
-  hash go in a `comment`). Nothing else (no delete, user search, attachments, boards or
+  hash go in a `comment`). `get` and `search` show the assignee as `Display Name (login)`,
+  comparable with `whoami`, and an unassigned task as `unassigned`. Nothing else (no delete, user search, attachments, boards or
   sprints, no "list all statuses": a task moves only by the transitions open now, which
   `transition KEY` lists); more commands are added when a project needs them. SKILL.md's
   description and Actions table name every action, since a process kit decides from them
   whether to ask the human. *Source:* brief, settled 3; design round Q6 (the human: "decide
   as we work"; the brief's six are taken); `assign`, `label`, comment ids from the sdlc
   kit's requirements T1–T3, T5 (session artifact
-  `tracker-jira-server-requirements-6a653014.md`, the human: "согласен").
+  `tracker-jira-server-requirements-6a653014.md`, the human: "согласен"); `whoami`, the
+  assignee's login and the refusal to take another's task from the sdlc kit's
+  requirements 1–3 (session artifact `tracker-requirements-690cd7a8.md`; report
+  `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (full, b3e0aec), F5.2, F12.1,
+  F5.4; the human at the triage of run `improve/tracker-jira-server-whoami`: "да").
 - **R4** No MCP server. The skill reaches Jira with `skills/tracker/jira.py`, on Python's
-  standard library only. *Source:* brief, settled 4.
+  standard library only, run by `uv` (`uv run --script`, the script's inline metadata
+  naming the Python it needs and no dependencies), so `uv` finds or installs that Python.
+  `uv` is the one command the kit cannot work without: `kit.yaml` names it in
+  `expects.commands` (with `dependencies.lado: ">=0.30"`), and the README requires it.
+  *Source:* brief, settled 4; report b3e0aec, F10.1; the human at the triage of run
+  `improve/tracker-jira-server-whoami`: "более надежным запускать скрипт с помощью uv и
+  добавить uv в expects.commands".
 - **R5** Credentials come from the agent's environment, `JIRA_URL`, `JIRA_USER`,
   `JIRA_PASSWORD` (Basic auth on each request; the password comes from the OS keychain in
   the user's shell profile). The kit never writes them to disk and never prints the
-  password or `JIRA_URL`; the login of `JIRA_USER` appears only as an assignee in
-  `assign`'s output (Jira shows it on the task anyway).
+  password or `JIRA_URL`; the login of `JIRA_USER` appears only as an account Jira shows
+  anyway: as an assignee (`assign`, `get`, `search`) and in `whoami`. `JIRA_URL` is
+  `https://`, or `http://` to localhost for tests.
   Personal access tokens (8.14+, sent as `Bearer`) are not supported, and the README says
   so. *Source:* brief, settled 5; Jira 8.13 section (no personal access tokens before
   8.14); report 37181e0, F5.4; the login in `assign`'s output: trial artifact
-  `trial-1.1.0`, the human at the 1.1.0 release gate ("логин вместо me").
+  `trial-1.1.0`, the human at the 1.1.0 release gate ("логин вместо me"); `whoami` and
+  localhost: report b3e0aec, F5.2, F5.5.
 - **R6** A project's settings live in its repository, `.lado/tracker.yaml`, read only by
   the script, found from the current directory upward to the repository root. The script
   reads a strict YAML subset: `key: value` lines, one level of nested maps, inline
@@ -85,24 +103,30 @@ project.
   `.lado/tracker.yaml` missing or invalid (path and what is wrong), rate limited (429:
   report it, not a request to fix). For `assign` only, a 401 without
   `X-Authentication-Denied-Reason` is no permission (exit 6) and a 404 an unknown user
-  (exit 11), as Atlassian's REST v2 documents for that resource; an unknown login is
-  reported, never guessed. SKILL.md tells the agent what to do on each exit code,
+  (exit 11), as Atlassian's REST v2 documents for that resource, and "no such user" is
+  said only for a login, never for unassigning; an unknown login is reported, never
+  guessed, and the exit-code table of SKILL.md says so in the row of 11. SKILL.md tells the agent what to do on each exit code,
   with one rule after "report it": wait for the answer when the step cannot go on without
   the tracker, otherwise go on. After Jira did not answer (exit 9) the agent sends Jira
   nothing more until told it answers again; the script's message says so. After a crash
   (exit 1) or a 5xx (exit 12) on a write, Jira did answer, so the agent checks with `get`
-  or `search` whether the write was applied before running it again. A refused login
+  or `search` whether the write was applied before running it again. When a comment
+  after a transition fails, the script's advice keeps the rule of the failure: after 9,
+  check with `get` only once told Jira answers again; after 429, report it and send the
+  comment only when told to. A refused login
   or CAPTCHA (exit 5) says in the script's own message that every agent stops using Jira
   until the human fixes it, so a lead without the skill learns it too. *Source:* brief,
   "Script behaviour on errors"; report 37181e0, F3.2, F5.1, F5.3, F7.1; trial artifact
   `trial-lado-session`, observation 2; report
   `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1, F3.4;
-  report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (7bc2beb), F5.2, F12.1.
+  report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (7bc2beb), F5.2, F12.1;
+  same report (full, b3e0aec), F3.1, F5.1, F5.3.
 - **R9** What agents write in Jira in the user's name is marked by the script: every
   comment and every created task's description starts with `[LADO: <agent>]` (sent as
   `\[LADO: <agent>\]`, since Jira shows a bare `[...]` as a broken link), the agent's
   name taken from `LADO_AGENT` (which LADO sets for each agent); without `LADO_AGENT` (the
-  user runs the script by hand) there is no mark. *Source:* design round Q4.
+  user runs the script by hand) there is no mark. Jira keeps it escaped, so SKILL.md tells
+  an agent to look for `\[LADO: …\]` in `get` (report b3e0aec, F9.1). *Source:* design round Q4.
 - **R11** One default write scope in SKILL.md: reading is always fine; create, transition,
   comment, assign, label or link only when the agent's role, its step or the human asks for it, and only
   on the tasks named. A process kit's roles and steps may allow more. *Source:* critic's
@@ -165,17 +189,18 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 
 | Element | Kind | Covers | Why it exists / why nothing simpler |
 |---|---|---|---|
-| `kit.yaml` | manifest | R2 | name, version, description; no `supervisor:` (the kit never leads a session) and no `dependencies.skills` |
+| `kit.yaml` | manifest | R2, R4 | name, version, description; `expects.commands: [uv]` and `dependencies.lado: ">=0.30"`; no `supervisor:` (the kit never leads a session) and no `dependencies.skills` |
+| `uv` | command (expects) | R4 | runs `jira.py` with the Python its metadata names on every project; a session whose agents lack it does not start, instead of failing at the first tracker action |
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R6, R7, R8, R9, R11, R12 | the one skill the convention names; how to run each action, write Markdown (`--wiki` for raw wiki markup), where the settings are and their format with an example, what each exit code means and what to do; no project-specific values |
-| `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R12 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `transition`, `comment`, `assign`, `label`, `link`; reads env credentials and `.lado/tracker.yaml`; converts Markdown to wiki markup; adds the mark |
+| `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R12 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `transition`, `comment`, `assign`, `label`, `link`, `whoami`; inline script metadata for `uv`; reads env credentials and `.lado/tracker.yaml`; converts Markdown to wiki markup; adds the mark |
 | `tests/test_jira.py` | tests (outside the skill) | R7, R8, R9, R10, R12 | the trials run on a test Jira, so the script's requests, the YAML subset, the mark and every error path are checked before it against a local fake Jira (standard library `unittest` and `http.server`); outside `skills/` so it does not ship into agents' skill folders |
-| `README.md` | doc | R2, R5, R6 | how to add the kit to a session, set the credentials and write a project's `.lado/tracker.yaml` |
+| `README.md` | doc | R2, R4, R5, R6 | how to add the kit to a session, that `uv` is required, set the credentials and write a project's `.lado/tracker.yaml` |
 
 Reverse check:
 - R1: `tracker` skill, `jira.py` (no project values in either).
 - R2: `kit.yaml`, `tracker` skill, `README.md`.
 - R3: `tracker` skill, `jira.py`.
-- R4: `jira.py`.
+- R4: `jira.py`, `uv`, `kit.yaml`, `README.md`.
 - R5: `jira.py`, `README.md`.
 - R6: `tracker` skill, `jira.py`, `README.md`.
 - R7: `tracker` skill, `jira.py`, `tests/test_jira.py`.
@@ -208,6 +233,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-09 | 1.2.0 | R4: `jira.py` run by `uv run --script`, `uv` in `expects.commands`, `dependencies.lado: ">=0.30"` (F10.1). R3: `whoami`; assignee as `Display Name (login)` or `unassigned` in `get`/`search` (F5.2); `assign` refuses a task held by another account unless `--reassign` (F12.1); pull request named in `link`, kit description "link a branch or commit to tasks" (F5.4). R5: the login also in `whoami` and assignees; `http://` to localhost (F5.5). R8: row 11 for `assign` (F5.1); "no such user" only for a login (F3.1); advice after a failed comment keeps the rules of 9 and 429 (F5.3). R9: look for `\[LADO: …\]` (F9.1) | The sdlc kit's requirements for `tracker` (session artifact `tracker-requirements-690cd7a8.md`); report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (full, b3e0aec), F3.1, F5.1–F5.5, F9.1, F10.1, F12.1; the human at the triage: "F10.1 — запускать скрипт с помощью uv и добавить uv в expects.commands", "1. да 2. да 3. все четыре 4. minor" |
 | 2026-10-09 | 1.1.0 | R3: `assign` and `label` actions, comment ids in `get`, description and Actions table name them; `--comment` counts for a required comment field (F3.2); `--resolution`/`--field` on a task already in the target status refused (F3.3). R6: status words `in progress`, `review`, `done` in the example. R8: after exit 1 or 5xx on a write, check with `get`/`search` before running it again (F3.1); unreadable `SSL_CERT_FILE` is exit 10 (F3.4). R12: `--wiki` also for wiki text that looks like Markdown (F5.1); parentheses in link URLs (F5.2). From the 1.1.0 evaluation (7bc2beb) and trial `trial-1.1.0`: an unknown login is reported, not guessed (F12.1); a refused unassign is named (F3.2); a comment after a transition failing with 9 or 5xx may have been added, check with `get` (F5.3); R8 names `assign`'s 401/404 (F5.2); R5: `assign` prints the login of `JIRA_USER`, not `me` | The sdlc kit's requirements T1–T5 (session artifact `tracker-jira-server-requirements-6a653014.md`); report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1–F3.4, F5.1, F5.2; the human: "согласен", "Да, всё как рекомендуешь"; the release gate: "Оставить F12.1/F5.3/F3.2, сделать F5.2, логин вместо me" |
 | 2026-10-09 | 1.0.2 | F5.1: code-block languages limited to Jira 8.13's list with synonyms, the rest and none → `{code:none}`; `transition --comment` posted separately when the transition has no comment field, and F5.6: also when the task is already in the target status (R3); the mark sent as `\[LADO: …\]` (R9); SKILL.md's false phrase "a code block … ends the list" removed | Trial artifact `trial-1.0.1` (test Jira Server 8.13.19, TEST-20), items 1–4; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (a0b8837), F5.1; the human: "Да, improve → 1.0.2 с пунктами 1–4"; report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (f20af91), F5.6, and the release gate: "исправить F5.6 и сразу проверить" |
 | 2026-10-09 | 1.0.1 | R12: Markdown in, converted to wiki markup by `jira.py` (minimal subset, raw fallback, `--wiki`); SKILL.md's wiki-markup section replaced; R7 no longer says "converts nothing". Fixed from report 1.0.1 (16909d7): F5.2 blank lines inside a list dropped, SKILL.md says a code block ends a numbered list; F5.3 wiki characters escaped inside `{{…}}`; F5.4 images `![alt](url)` pass as they are; F5.5 SKILL.md: one paragraph per line. F5.1 (code-block languages) waits for the test-Jira trial. Patch, not minor, by the human's decision: the kit is not yet published | The human's request, 2026-10-09 (messages #1253, #1263, #1279); report `kit-reports/tracker-jira-server-1.0.0-2026-10-08.md` (1240f8d), 0 findings; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (16909d7) and the release gate: "давай починим F5.2 - F5.5, а потом займемся тестированием" |
