@@ -658,7 +658,11 @@ def cmd_transition(jira, args):
     match = match or [t for t in transitions if t.get("name", "").lower() in wanted]
     match = match or [t for t in transitions if _name(t.get("to")).lower() in wanted]
     if not match and current.lower() == status.lower():
-        print("%s is already in %s" % (args.key, current))
+        there = "%s is already in %s" % (args.key, current)
+        if args.comment is not None:
+            comment = mark(text_arg(args.comment, args.wiki))
+            there += ", comment %s added" % _add_comment(jira, args.key, comment)
+        print(there)
         return OK
     available = "; ".join(_describe(t) for t in transitions) or "none"
     if len(match) != 1:

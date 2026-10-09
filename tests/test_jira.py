@@ -505,6 +505,18 @@ class CommandsTest(JiraTestCase):
         code, out, _ = self.run_jira("transition", "TEST-1", "In Progress")
         self.assertEqual(code, 0)
         self.assertIn("already in In Progress", out)
+        self.assertEqual(self.sent("POST", "issue/TEST-1/comment"), [])
+
+    def test_transition_already_there_still_posts_the_comment(self):
+        self.route_transitions()
+        self.jira.route("POST", "issue/TEST-1/comment", {"id": "100"}, status=201)
+        code, out, err = self.run_jira("transition", "TEST-1", "In Progress",
+                                       "--comment", "**Ready.**")
+        self.assertEqual(code, 0, err)
+        self.assertIn("already in In Progress, comment 100 added", out)
+        self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[0]["body"]["body"],
+                         "\\[LADO: developer\\]\n\n*Ready.*")
+        self.assertEqual(self.sent("POST", "issue/TEST-1/transitions"), [])
 
     def test_comment_marked_only_for_an_agent(self):
         self.jira.route("POST", "issue/TEST-1/comment", {"id": "100"}, status=201)
