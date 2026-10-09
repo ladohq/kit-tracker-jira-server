@@ -70,6 +70,8 @@ bullet and numbered lists (nested by indentation) and links `[text](url)`. Anyth
 is sent as it is, so wiki markup in plain text still works: `[~login]` mentions a user,
 a bare `KEY-1` links to the task. For wiki markup Markdown lacks (panels, `{noformat}`),
 write the whole text in wiki markup and add `--wiki`: it is sent unconverted.
+Write each paragraph on one line: Jira shows every line break. A code block inside a
+numbered list ends the list in Jira, so the numbering after it starts again at 1.
 A description given as `--field description=...` is never converted. `get` shows the
 text as Jira keeps it, in wiki markup.
 

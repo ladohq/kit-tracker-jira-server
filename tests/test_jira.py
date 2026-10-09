@@ -229,18 +229,25 @@ class MarkdownTest(unittest.TestCase):
     def test_emphasis_and_code(self):
         self.assertWiki("**b** __b__ *i* _i_ `c`", "*b* *b* _i_ _i_ {{c}}")
         self.assertWiki("**bold with *italic***", "*bold with _italic_*")
-        self.assertWiki("`a **b** [x](y)`", "{{a **b** [x](y)}}")
+        self.assertWiki("`a **b** [x](y)`", r"{{a \*\*b\*\* \[x\](y)}}")
+        self.assertWiki("run `**/*.py` and `{x}`", r"run {{\*\*/\*.py}} and {{\{x\}}}")
         self.assertWiki("2 * 3 * 4 and snake_case_name", "2 * 3 * 4 and snake_case_name")
 
     def test_links(self):
         self.assertWiki("see [the PR](https://h/a__b__c) now",
                         "see [the PR|https://h/a__b__c] now")
         self.assertWiki("[**bold** link](http://x)", "[*bold* link|http://x]")
+        self.assertWiki("![alt](http://x/y.png)", "![alt](http://x/y.png)")
 
     def test_lists_nest_by_indent(self):
         self.assertWiki("- a\n  * b\n    1. c\n  + d\n- e\n\n1. f\n2. g",
                         "* a\n** b\n**# c\n** d\n* e\n\n# f\n# g")
         self.assertWiki("1. a\n   - b", "# a\n#* b")
+
+    def test_blank_lines_inside_a_list_are_dropped(self):
+        self.assertWiki("1. one\n\n2. two\n\n  - sub\n\nafter\n",
+                        "# one\n# two\n#* sub\n\nafter\n")
+        self.assertWiki("- e\n\n1. f", "* e\n\n# f")
 
     def test_code_block_content_is_untouched(self):
         self.assertWiki("```python\n# not a heading\n**x** `y`\n```\nafter **z**",

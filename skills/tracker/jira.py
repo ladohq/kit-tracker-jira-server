@@ -354,22 +354,25 @@ FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*([\w+#.-]*)\s*$")
 HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$")
 LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
 CODE_SPAN = re.compile(r"(`+)(.+?)\1")
-LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
+LINK = re.compile(r"(?<!!)\[([^\]\n]+)\]\(([^)\s]+)\)")
 BOLD = re.compile(r"(?<![\w*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w*])"
                   r"|(?<![\w_])__(?=\S)(.+?)(?<=\S)__(?![\w_])")
 ITALIC = re.compile(r"(?<![\w*])\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?![\w*])")
 SLOT = re.compile("\x00(\\d+)\x00")
+CODE_ESCAPE = re.compile(r"([*_\-+^~{}\[\]|])")
 
 
 def _inline(text):
-    # Code spans and link targets are set aside first, so no markup is read inside them.
+    # Code spans and link targets are set aside first, so no markup is read inside them;
+    # Jira reads markup inside {{...}}, so its wiki characters are escaped there.
     slots = []
 
     def keep(value):
         slots.append(value)
         return "\x00%d\x00" % (len(slots) - 1)
 
-    text = CODE_SPAN.sub(lambda m: keep("{{%s}}" % m.group(2).strip()), text)
+    text = CODE_SPAN.sub(lambda m: keep(
+        "{{%s}}" % CODE_ESCAPE.sub(r"\\\1", m.group(2).strip())), text)
     text = LINK.sub(lambda m: "[%s|%s]" % (m.group(1), keep(m.group(2))), text)
     text = BOLD.sub(lambda m: "\x01%s\x01" % (m.group(1) or m.group(2)), text)
     text = ITALIC.sub(r"_\1_", text).replace("\x01", "*")
@@ -378,10 +381,26 @@ def _inline(text):
     return text
 
 
+def _item(match):
+    return (len(match.group(1).expandtabs(4)),
+            "#" if match.group(2)[0].isdigit() else "*")
+
+
+def _same_list(lists, match):
+    """Whether a list item after a blank line goes on the open list: a deeper item, or one
+    of the same kind at an open level (another kind there starts another list)."""
+    if not match:
+        return False
+    indent, kind = _item(match)
+    levels = dict(lists)
+    return indent > lists[-1][0] or levels.get(indent, kind) == kind
+
+
 def _wiki(text):
     out = []
     lists = []  # (indent, "*" or "#") of the open list levels
     fence = None
+    held = []  # blank lines inside a list: a blank line ends a list in Jira
     for line in text.split("\n"):
         if fence:
             if line.strip().startswith(fence) and not line.strip().strip(fence[0]):
@@ -390,6 +409,13 @@ def _wiki(text):
             else:
                 out.append(line)
             continue
+        if lists and not line.strip():
+            held.append(line)
+            continue
+        if held and not _same_list(lists, LIST_ITEM.match(line)):
+            out.extend(held)
+            lists = []
+        held = []
         match = FENCE.match(line)
         if match:
             fence = match.group(1)
@@ -398,8 +424,7 @@ def _wiki(text):
             continue
         match = LIST_ITEM.match(line)
         if match:
-            indent = len(match.group(1).expandtabs(4))
-            kind = "#" if match.group(2)[0].isdigit() else "*"
+            indent, kind = _item(match)
             while lists and lists[-1][0] > indent:
                 lists.pop()
             if lists and lists[-1][0] == indent:
@@ -415,6 +440,7 @@ def _wiki(text):
             out.append("h%d. %s" % (len(match.group(1)), _inline(match.group(2))))
         else:
             out.append(_inline(line))
+    out.extend(held)
     if fence:  # a block left open is closed before the text's last newline
         out.insert(len(out) - (out[-1] == ""), "{code}")
     return "\n".join(out)
