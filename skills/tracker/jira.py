@@ -357,6 +357,14 @@ CODE_SPAN = re.compile(r"(`+)(.+?)\1")
 LINK = re.compile(r"(?<!!)\[([^\]\n]+)\]\(([^)\s]+)\)")
 BOLD = re.compile(r"(?<![\w*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w*])"
                   r"|(?<![\w_])__(?=\S)(.+?)(?<=\S)__(?![\w_])")
+# The languages Jira 8.13 highlights; any other gets {code:none}: a bare {code} is Java.
+CODE_LANGUAGES = {"actionscript", "ada", "applescript", "bash", "c", "c#", "c++", "cpp",
+                  "css", "erlang", "go", "groovy", "haskell", "html", "java", "javascript",
+                  "js", "json", "lua", "none", "nyan", "objc", "perl", "php", "python", "r",
+                  "rainbow", "ruby", "scala", "sh", "sql", "swift", "visualbasic", "xml",
+                  "yaml"}
+CODE_SYNONYMS = {"shell": "bash", "console": "bash", "zsh": "bash", "ts": "javascript",
+                 "typescript": "javascript"}
 ITALIC = re.compile(r"(?<![\w*])\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?![\w*])")
 SLOT = re.compile("\x00(\\d+)\x00")
 CODE_ESCAPE = re.compile(r"([*_\-+^~{}\[\]|])")
@@ -379,6 +387,11 @@ def _inline(text):
     while SLOT.search(text):
         text = SLOT.sub(lambda m: slots[int(m.group(1))], text)
     return text
+
+
+def _language(name):
+    name = CODE_SYNONYMS.get(name.lower(), name.lower())
+    return name if name in CODE_LANGUAGES else "none"
 
 
 def _item(match):
@@ -419,7 +432,7 @@ def _wiki(text):
         match = FENCE.match(line)
         if match:
             fence = match.group(1)
-            out.append("{code:%s}" % match.group(2) if match.group(2) else "{code}")
+            out.append("{code:%s}" % _language(match.group(2)))
             lists = []
             continue
         match = LIST_ITEM.match(line)
@@ -473,7 +486,9 @@ def mark(text):
     agent = os.environ.get("LADO_AGENT", "").strip()
     if not agent:
         return text
-    return "[LADO: %s]\n\n%s" % (agent, text) if text else "[LADO: %s]" % agent
+    # Escaped: a bare [LADO: x] is a link in Jira, shown red as a broken one.
+    label = "\\[LADO: %s\\]" % agent
+    return "%s\n\n%s" % (label, text) if text else label
 
 
 def parse_fields(pairs):
@@ -665,21 +680,39 @@ def cmd_transition(jira, args):
     body = {"transition": {"id": transition["id"]}}
     if fields:
         body["fields"] = fields
+    comment = None
     if args.comment is not None:
         comment = mark(text_arg(args.comment, args.wiki))
+    # Jira drops update.comment of a transition with no comment field on its screen.
+    inline = comment is not None and "comment" in (transition.get("fields") or {})
+    if inline:
         body["update"] = {"comment": [{"add": {"body": comment}}]}
-    sent = list(fields) + (["comment"] if args.comment is not None else [])
+    sent = list(fields) + (["comment"] if inline else [])
     jira.call("POST", "issue/%s/transitions" % urllib.parse.quote(args.key), body=body,
               missing=missing_issue(args.key), sent=sent)
-    print("%s: %s -> %s" % (args.key, current, _name(transition.get("to"))))
+    moved = "%s: %s -> %s" % (args.key, current, _name(transition.get("to")))
+    if inline:
+        moved += ", comment added"
+    elif comment is not None:
+        try:
+            moved += ", comment %s added" % _add_comment(jira, args.key, comment)
+        except Failure as failure:
+            raise Failure(failure.code, "%s done, but the comment was not added (do not "
+                                        "run the transition again; send the comment "
+                                        "with comment): %s" % (moved, failure.message))
+    print(moved)
     return OK
 
 
+def _add_comment(jira, key, text):
+    result = jira.call("POST", "issue/%s/comment" % urllib.parse.quote(key),
+                       body={"body": text}, missing=missing_issue(key), sent=None)
+    return (result or {}).get("id")
+
+
 def cmd_comment(jira, args):
-    body = {"body": mark(text_arg(args.text, args.wiki))}
-    result = jira.call("POST", "issue/%s/comment" % urllib.parse.quote(args.key),
-                       body=body, missing=missing_issue(args.key), sent=None)
-    print("%s: comment %s added" % (args.key, (result or {}).get("id")))
+    comment_id = _add_comment(jira, args.key, mark(text_arg(args.text, args.wiki)))
+    print("%s: comment %s added" % (args.key, comment_id))
     return OK
 
 
