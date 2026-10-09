@@ -87,8 +87,8 @@ error: kit.yaml: states must be a non-empty mapping   (exit status 2)
 
 ### 1. Границы ролей
 
-Не применимо: ролей нет (R2). Право на запись в Jira не изменилось: SKILL.md:25 «only
-when your role, your step or the human asks for it».
+Не применимо: ролей нет (R2). Право на запись в Jira не изменилось: SKILL.md:25-26 «only
+when your role, / your step or the human asks for it».
 
 ### 2. Передачи между шагами
 
@@ -206,7 +206,7 @@ Jira выглядит иначе.
 | Known hole | Находка, или как кит это решает |
 |---|---|
 | 1. Red check sent back with no environment cause considered | Коды разделяют окружение (4, 5, 9, 10, 12 — «report it») и ошибку запроса (2, 8, 11 — «fix»); сбой конвертера не даёт кода, текст уходит как есть. |
-| 2. Work outside a flow, merge without a gate | Нет git-работы; запись в Jira — SKILL.md:25 «only when your role, your step or the human asks for it». |
+| 2. Work outside a flow, merge without a gate | Нет git-работы; запись в Jira — SKILL.md:25-26 «only when your role, / your step or the human asks for it». |
 | 3. Path outside the run's worktree | Не изменилось: `.lado/tracker.yaml` «from the current directory up to the repository root». |
 | 4. Verdict without a severity threshold | Не применимо: рецензента нет. |
 | 5. Dependency skill that writes or asks where its role must not | Не применимо: `dependencies.skills` нет. |
