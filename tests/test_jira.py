@@ -525,6 +525,23 @@ class CommandsTest(JiraTestCase):
         self.assertIn("done, but the comment was not added", err)
         self.assertIn("report it; send the comment with comment once you are told to", err)
 
+    def test_transition_done_but_comment_failed_otherwise_reports_first(self):
+        self.route_transitions()
+        for status, headers, code in [
+                (401, {}, jira.CREDENTIALS_REFUSED),
+                (403, {"X-Authentication-Denied-Reason": "CAPTCHA_CHALLENGE"},
+                 jira.CREDENTIALS_REFUSED),
+                (403, {}, jira.NO_ACCESS), (404, {}, jira.NOT_FOUND)]:
+            with self.subTest(status=status, headers=headers):
+                self.jira.route("POST", "issue/TEST-1/comment",
+                                {"errorMessages": ["no"]}, status=status, headers=headers)
+                got, _, err = self.run_jira("transition", "TEST-1", "review",
+                                            "--comment", "x")
+                self.assertEqual(got, code, err)
+                self.assertIn("the comment was not added (do not run the transition "
+                              "again; report it; send the comment with comment once you "
+                              "are told to)", err)
+
     def test_transition_done_but_comment_unreachable_waits_first(self):
         self.route_transitions()
         event = threading.Event()
@@ -637,6 +654,15 @@ class CommandsTest(JiraTestCase):
                           "changed", err)
             self.assertIn("--reassign", err)
             self.assertEqual(out, "")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee"), [])
+
+    def test_assign_sees_a_holder_known_only_by_key(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
+            "assignee": {"key": "ann"}}})
+        self.jira.route("PUT", "issue/TEST-1/assignee", None, status=204)
+        code, _, err = self.run_jira("assign", "TEST-1", "me")
+        self.assertEqual(code, jira.REFUSED, err)
+        self.assertIn("assigned to ann, another account", err)
         self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee"), [])
 
     def test_assign_reassign_takes_it_from_another_account(self):
@@ -794,9 +820,10 @@ class ErrorsTest(JiraTestCase):
             "assignee": {"name": "agent.user"}}})
         self.jira.route("PUT", "issue/TEST-1/assignee",
                         {"errorMessages": ["Issue Does Not Exist"]}, status=404)
-        err = self.assertFails(jira.NOT_FOUND, "task TEST-1 not found",
+        err = self.assertFails(jira.REFUSED, "Jira refused to unassign TEST-1: 404",
                                "assign", "TEST-1", "none")
         self.assertNotIn("no such user", err)
+        self.assertNotIn("check the key", err)
 
     def test_assign_answer_not_from_jira_is_not_an_unknown_user(self):
         self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {"assignee": None}})

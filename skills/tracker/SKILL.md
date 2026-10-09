@@ -61,8 +61,9 @@ with no remote has no such page, so give the branch and the commit hash in a `co
 - **comment**, **transition --comment**: print the new comment's id; `get` shows the
   same id on each comment, so look for it there to see that your comment is in. If
   `transition --comment` prints no id, find your `\[LADO: …\]` comment in `get`, as Jira keeps it escaped.
-- **get**, **search**, **whoami** show an account as `Display Name (login)`, a task with
-  no assignee as `unassigned`. To tell whether a task is yours, compare the login of its
+- **get** and **search** show the assignee, and **whoami** your account, as
+  `Display Name (login)`, or the login alone when Jira has no other name; a task with no
+  assignee as `unassigned`. Reporters and comment authors show only their name. To tell whether a task is yours, compare the login of its
   assignee with the one `whoami` prints.
 - **assign**: use only a login you were given; on exit 11 report it and do not try
   another login, since a guess may assign the task to someone else. A task another
@@ -118,9 +119,11 @@ Read it when you need the project's words; the user changes it, not you.
 
 ## When the script fails
 
-It prints one line saying what happened and stops; it never retries. A line that does
-not start with `jira.py` or `usage: jira.py` comes from `uv`, which runs the script (it
-could not find or install the Python the script needs): treat it as exit 1. To **report** a
+It prints one line saying what happened and stops; it never retries. A message that does
+not start with `jira.py` or `usage: jira.py` comes from `uv` or Python, not the script, and
+nothing reached Jira: if it says it cannot open `jira.py`, fix the path (see above);
+otherwise (uv could not get Python or write its cache; its exit 2 is not wrong arguments)
+treat it as exit 1 and report all of it. To **report** a
 failure: as a worker, send the supervisor that line and the command with `send_message`;
 as the lead, tell the human. Then wait for the answer if your step cannot go on without
 the tracker; otherwise go on with it. Act on the exit code:

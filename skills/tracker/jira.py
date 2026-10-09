@@ -739,17 +739,20 @@ def cmd_transition(jira, args):
             moved += ", comment %s added" % _add_comment(jira, args.key, comment)
         except Failure as failure:
             # No answer or a 5xx may follow a comment Jira did add; a 429 runs nothing.
-            # The advice keeps the failure's own rule: wait after 9, report a 429.
+            # The advice keeps the failure's own rule: only a refused comment is fixed and
+            # sent again at once; after 9 wait, after any other failure report it first.
             rate_limited = failure.status == 429
             unsure = failure.code == UNREACHABLE or (failure.code == SERVER_ERROR
                                                      and not rate_limited)
             check = "check with get, then send the comment with comment if it is not there"
             if failure.code == UNREACHABLE:
                 advice = "once you are told Jira answers again, " + check
-            elif rate_limited:
-                advice = "report it; send the comment with comment once you are told to"
+            elif unsure:
+                advice = check
+            elif failure.code == REFUSED:
+                advice = "send the comment with comment"
             else:
-                advice = check if unsure else "send the comment with comment"
+                advice = "report it; send the comment with comment once you are told to"
             raise Failure(failure.code, "%s done, but %s (do not run the transition again; "
                                         "%s): %s" % (
                 moved, "the comment may not have been added" if unsure
@@ -794,7 +797,7 @@ def cmd_assign(jira, args):
     path = "issue/%s" % urllib.parse.quote(args.key)
     issue = jira.call("GET", path, {"fields": "assignee"}, missing=missing_issue(args.key))
     holder = (issue.get("fields") or {}).get("assignee")
-    current = (holder or {}).get("name")
+    current = (holder or {}).get("name") or (holder or {}).get("key")
     if (current or "").lower() == (login or "").lower():
         print("%s: assignee %s already, nothing changed" % (args.key, _user(current)))
         return OK
@@ -813,9 +816,10 @@ def cmd_assign(jira, args):
         if failure.status == 401 and not failure.denied:
             raise Failure(NO_ACCESS, "no permission to assign %s (401)" % args.key)
         if login is None:
-            if failure.code == REFUSED:
+            if failure.code in (NOT_FOUND, REFUSED):
                 raise Failure(REFUSED, "Jira refused to unassign %s: %s"
-                              % (args.key, failure.message))
+                              % (args.key, failure.message
+                                 if failure.status != 404 else "404"))
             raise
         if failure.code in (NOT_FOUND, REFUSED):
             raise Failure(REFUSED, "Jira refused to assign %s to %s: no such user, or the "

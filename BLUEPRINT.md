@@ -164,8 +164,11 @@ project.
   переименовываем репозиторий").
 
 Decided at the improve triage (2026-10-08): no limits for agents beyond R11 (deletes,
-closing tasks, others' tasks); the kit has no delete, and a process kit may set its own
-(brief, settled 7; report 37181e0, F7.2, Question 2).
+closing tasks, others' tasks), except taking another account's task in `assign` (R3,
+1.2.0); the kit has no delete, and a process kit may set its own
+(brief, settled 7; report 37181e0, F7.2, Question 2; report
+`kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (d6590ef), F5.4, the human at the
+release gate of run `improve/tracker-jira-server-whoami`).
 
 ## 2. Starting point
 
