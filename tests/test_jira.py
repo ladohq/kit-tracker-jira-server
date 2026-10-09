@@ -49,6 +49,16 @@ class Raw:
         self.data, self.length = data, length
 
 
+class Seq:
+    """Payloads answered one per request, the last one from then on."""
+
+    def __init__(self, *payloads):
+        self.payloads = list(payloads)
+
+    def next(self):
+        return self.payloads.pop(0) if len(self.payloads) > 1 else self.payloads[0]
+
+
 class FakeJira:
     """Answers each (method, path) from `routes`, records every request."""
 
@@ -75,6 +85,8 @@ class FakeJira:
                     status, headers, payload = 404, {}, {"errorMessages": ["no route"]}
                 else:
                     status, headers, payload = route
+                    if isinstance(payload, Seq):
+                        payload = payload.next()
                 raw = payload if isinstance(payload, Raw) else Raw(
                     json.dumps(payload).encode() if payload is not None else b"")
                 data = raw.data
@@ -238,6 +250,8 @@ class MarkdownTest(unittest.TestCase):
                         "see [the PR|https://h/a__b__c] now")
         self.assertWiki("[**bold** link](http://x)", "[*bold* link|http://x]")
         self.assertWiki("![alt](http://x/y.png)", "![alt](http://x/y.png)")
+        self.assertWiki("[a](http://x/y_(z)) and (see [b](http://w))",
+                        "[a|http://x/y_(z)] and (see [b|http://w])")
 
     def test_lists_nest_by_indent(self):
         self.assertWiki("- a\n  * b\n    1. c\n  + d\n- e\n\n1. f\n2. g",
@@ -276,8 +290,9 @@ class CommandsTest(JiraTestCase):
             "summary": "Fix login", "status": {"name": "Open"},
             "issuetype": {"name": "Bug"}, "assignee": {"name": "ann", "displayName": "Ann"},
             "description": "h2. Steps\n# open", "customfield_10100": "TEST-9",
-            "comment": {"comments": [{"author": {"displayName": "Bob"}, "body": "c%d" % i,
-                                      "created": "2026-10-0%d" % i} for i in range(1, 8)]}}})
+            "comment": {"comments": [{"id": str(100 + i), "author": {"displayName": "Bob"},
+                                      "body": "c%d" % i, "created": "2026-10-0%d" % i}
+                                     for i in range(1, 8)]}}})
         code, out, err = self.run_jira("get", "TEST-1", "--comments", "2")
         self.assertEqual(code, 0, err)
         self.assertIn("TEST-1  Fix login", out)
@@ -285,7 +300,7 @@ class CommandsTest(JiraTestCase):
         self.assertIn("Epic: TEST-9", out)
         self.assertIn("h2. Steps", out)
         self.assertIn("Comments: 7, the last 2 shown", out)
-        self.assertIn("c7", out)
+        self.assertIn("--- comment 107, Bob, 2026-10-07\nc7", out)
         self.assertNotIn("c5", out)
         request = self.jira.requests[0]
         expected = "Basic " + base64.b64encode(
@@ -493,6 +508,22 @@ class CommandsTest(JiraTestCase):
         body = self.sent("POST", "issue/TEST-1/transitions")[0]["body"]
         self.assertEqual(body["fields"], {"resolution": {"name": "Fixed"}})
 
+    def test_transition_required_comment_is_given_by_comment(self):
+        self.route_transitions()
+        self.jira.route("GET", "issue/TEST-1/transitions", {"transitions": [
+            {"id": "31", "name": "Close", "to": {"name": "Done"},
+             "fields": {"comment": {"name": "Comment", "required": True}}}]})
+        code, _, err = self.run_jira("transition", "TEST-1", "done")
+        self.assertEqual(code, jira.FIELDS_REQUIRED)
+        self.assertIn("--comment", err)
+        code, out, err = self.run_jira("transition", "TEST-1", "done", "--comment", "why")
+        self.assertEqual(code, 0, err)
+        self.assertIn("-> Done, comment added", out)
+        body = self.sent("POST", "issue/TEST-1/transitions")[0]["body"]
+        self.assertNotIn("fields", body)
+        self.assertEqual(body["update"]["comment"][0]["add"]["body"],
+                         "\\[LADO: developer\\]\n\nwhy")
+
     def test_transition_not_available_lists_the_others(self):
         self.route_transitions()
         code, _, err = self.run_jira("transition", "TEST-1", "Reopen")
@@ -517,6 +548,83 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[0]["body"]["body"],
                          "\\[LADO: developer\\]\n\n*Ready.*")
         self.assertEqual(self.sent("POST", "issue/TEST-1/transitions"), [])
+
+    def test_transition_already_there_refuses_resolution_and_fields(self):
+        self.route_transitions()
+        for extra in (["--resolution", "Fixed"], ["--field", "x=1"]):
+            code, out, err = self.run_jira("transition", "TEST-1", "In Progress",
+                                           "--comment", "x", *extra)
+            self.assertEqual(code, jira.REFUSED, err)
+            self.assertIn("already in In Progress: --resolution and --field were not "
+                          "applied, and no comment was posted", err)
+        self.assertEqual([r for r in self.jira.requests if r["method"] != "GET"], [])
+
+    def route_assignee(self, name):
+        assignee = {"name": name, "displayName": "Someone"} if name else None
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1",
+                                                "fields": {"assignee": assignee}})
+        self.jira.route("PUT", "issue/TEST-1/assignee", None, status=204)
+
+    def test_assign(self):
+        self.route_assignee("ann")
+        code, out, err = self.run_jira("assign", "TEST-1", "bob")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: assignee ann -> bob\n")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[0]["body"], {"name": "bob"})
+        code, out, err = self.run_jira("assign", "TEST-1", "me")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: assignee ann -> me\n")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[1]["body"],
+                         {"name": "agent.user"})
+
+    def test_unassign(self):
+        self.route_assignee("agent.user")
+        code, out, err = self.run_jira("assign", "TEST-1", "none")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: assignee me -> unassigned\n")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[0]["body"], {"name": None})
+
+    def test_assign_already_so_changes_nothing(self):
+        for name, user, shown in [("Agent.User", "me", "me"), ("ann", "ANN", "ann"),
+                                  (None, "none", "unassigned")]:
+            self.route_assignee(name)
+            code, out, err = self.run_jira("assign", "TEST-1", user)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out, "TEST-1: assignee %s already, nothing changed\n" % shown)
+        self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee"), [])
+
+    def route_labels(self, *labels):
+        self.jira.route("GET", "issue/TEST-1", Seq(*[
+            {"key": "TEST-1", "fields": {"labels": list(each)}} for each in labels]))
+        self.jira.route("PUT", "issue/TEST-1", None, status=204)
+
+    def test_label_add_and_remove(self):
+        self.route_labels(["lado", "old"], ["lado", "waiting_for_release"])
+        code, out, err = self.run_jira("label", "TEST-1", "--add", "waiting_for_release",
+                                       "lado", "--remove", "old", "absent")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: labels lado, waiting_for_release\n")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1")[0]["body"], {"update": {
+            "labels": [{"add": "waiting_for_release"}, {"remove": "old"}]}})
+
+    def test_label_remove_the_last(self):
+        self.route_labels(["old"], [])
+        code, out, err = self.run_jira("label", "TEST-1", "--remove", "old")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: labels none\n")
+
+    def test_label_already_so_changes_nothing(self):
+        self.route_labels(["lado"])
+        code, out, err = self.run_jira("label", "TEST-1", "--add", "lado", "--remove", "x")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: labels lado, nothing changed\n")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1"), [])
+
+    def test_label_with_a_space_or_none_is_refused_before_any_request(self):
+        for argv in (["--add", "waiting for release"], ["--remove", "a b"], []):
+            code, _, err = self.run_jira("label", "TEST-1", *argv)
+            self.assertEqual(code, jira.USAGE, err)
+        self.assertEqual(self.jira.requests, [])
 
     def test_comment_marked_only_for_an_agent(self):
         self.jira.route("POST", "issue/TEST-1/comment", {"id": "100"}, status=201)
@@ -574,6 +682,22 @@ class ErrorsTest(JiraTestCase):
         self.jira.route("POST", "issue/TEST-1/comment",
                         {"errorMessages": ["You do not have the permission"]}, status=403)
         self.assertFails(jira.NO_ACCESS, "no access (403)", "comment", "TEST-1", "x")
+
+    def test_no_access_to_assign_or_label(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
+            "assignee": None, "labels": []}})
+        denied = {"errorMessages": ["You do not have permission to assign issues."]}
+        self.jira.route("PUT", "issue/TEST-1/assignee", denied, status=403)
+        self.assertFails(jira.NO_ACCESS, "no access (403)", "assign", "TEST-1", "me")
+        self.jira.route("PUT", "issue/TEST-1", denied, status=403)
+        self.assertFails(jira.NO_ACCESS, "no access (403)", "label", "TEST-1", "--add", "x")
+
+    def test_assign_unknown_user(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {"assignee": None}})
+        self.jira.route("PUT", "issue/TEST-1/assignee",
+                        {"errors": {"assignee": "User 'nobody' does not exist."}}, status=400)
+        self.assertFails(jira.REFUSED, "Jira refused to assign TEST-1 to nobody: no such user",
+                         "assign", "TEST-1", "nobody")
 
     def test_unset_credentials_are_named(self):
         with mock.patch.dict(os.environ, {"JIRA_PASSWORD": "", "JIRA_URL": ""}):
@@ -663,7 +787,15 @@ class ErrorsTest(JiraTestCase):
 
     def test_server_error_after_a_write_says_check_first(self):
         self.jira.route("POST", "issue/TEST-1/comment", None, status=504)
-        self.assertFails(jira.SERVER_ERROR, "may have been applied", "comment", "TEST-1", "x")
+        err = self.assertFails(jira.SERVER_ERROR, "may have been applied",
+                               "comment", "TEST-1", "x")
+        self.assertIn("check with get or search before running it again", err)
+        self.assertNotIn("once Jira answers again", err)
+
+    def test_unreadable_ssl_cert_file(self):
+        with mock.patch.dict(os.environ, {"SSL_CERT_FILE": "/nonexistent/ca.pem"}):
+            self.assertFails(jira.TLS, "SSL_CERT_FILE (/nonexistent/ca.pem) cannot be read")
+        self.assertEqual(self.jira.requests, [])
 
     def test_field_errors_on_comment_and_link_are_refusals(self):
         self.jira.route("POST", "issue/TEST-1/remotelink", {"errors": {"url": "Invalid URL"}},

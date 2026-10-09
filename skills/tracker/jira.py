@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Jira Server / Data Center 8.4 or newer from the command line: REST API v2, Basic auth.
 
-Commands: get, search, create, transition, comment, link (run with --help).
+Commands: get, search, create, transition, comment, assign, label, link (run with --help).
 Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD and are never printed.
 Text sent to Jira is Markdown, converted to Jira wiki markup (--wiki sends it as it is).
 Project settings come from .lado/tracker.yaml, found from the current directory up to
@@ -39,6 +39,9 @@ TIMEOUT = 30
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 APPLIED = ("; the change may have been applied: once Jira answers again, check with get "
            "or search before running it again")
+# Jira answered a 5xx, so nobody will say it answers again: check before running it again.
+APPLIED_ANSWERED = ("; the change may have been applied: check with get or search before "
+                    "running it again")
 STOP_ALL = ("; the lead tells every agent to stop using Jira until the human says it is "
             "fixed")
 WAIT = "; send Jira nothing more until you are told it answers again"
@@ -250,7 +253,11 @@ class Jira:
         login = "%s:%s" % (os.environ["JIRA_USER"], os.environ["JIRA_PASSWORD"])
         self.auth = "Basic " + base64.b64encode(login.encode("utf-8")).decode("ascii")
         cafile = os.environ.get("SSL_CERT_FILE") or None
-        context = ssl.create_default_context(cafile=cafile)
+        try:
+            context = ssl.create_default_context(cafile=cafile)
+        except (OSError, ssl.SSLError) as error:
+            raise Failure(TLS, "SSL_CERT_FILE (%s) cannot be read: %s; the user points it "
+                               "to a file with the corporate CA" % (cafile, error))
         self.opener = urllib.request.build_opener(
             _NoRedirect, urllib.request.HTTPSHandler(context=context))
 
@@ -338,7 +345,7 @@ class Jira:
         if code >= 500:
             # A proxy's 502/504 or a failing post-function can follow an applied write.
             return Failure(SERVER_ERROR, "Jira failed (%d)%s%s" % (
-                code, detail, APPLIED if method != "GET" else ""))
+                code, detail, APPLIED_ANSWERED if method != "GET" else ""))
         if fields and sent is not None and not set(fields) & set(sent):
             names = ", ".join("%s (%s)" % item for item in sorted(fields.items()))
             return Failure(FIELDS_REQUIRED, "Jira needs the fields: %s" % names)
@@ -354,7 +361,8 @@ FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*([\w+#.-]*)\s*$")
 HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$")
 LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
 CODE_SPAN = re.compile(r"(`+)(.+?)\1")
-LINK = re.compile(r"(?<!!)\[([^\]\n]+)\]\(([^)\s]+)\)")
+# One level of balanced parentheses in the URL: [a](http://x/y_(z)).
+LINK = re.compile(r"(?<!!)\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)")
 BOLD = re.compile(r"(?<![\w*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w*])"
                   r"|(?<![\w_])__(?=\S)(.+?)(?<=\S)__(?![\w_])")
 # The languages Jira 8.13 highlights; any other gets {code:none}: a bare {code} is Java.
@@ -546,8 +554,9 @@ def cmd_get(jira, args):
     else:
         print("\nComments: none")
     for comment in shown:
-        print("\n--- %s, %s\n%s" % (_name(comment.get("author")), comment.get("created"),
-                                    comment.get("body")))
+        print("\n--- comment %s, %s, %s\n%s" % (
+            comment.get("id"), _name(comment.get("author")), comment.get("created"),
+            comment.get("body")))
     return OK
 
 
@@ -658,6 +667,10 @@ def cmd_transition(jira, args):
     match = match or [t for t in transitions if t.get("name", "").lower() in wanted]
     match = match or [t for t in transitions if _name(t.get("to")).lower() in wanted]
     if not match and current.lower() == status.lower():
+        if args.resolution or args.field:
+            # Nothing is sent, the comment neither, so nothing is half done.
+            raise Failure(REFUSED, "%s is already in %s: --resolution and --field were not "
+                                   "applied, and no comment was posted" % (args.key, current))
         there = "%s is already in %s" % (args.key, current)
         if args.comment is not None:
             comment = mark(text_arg(args.comment, args.wiki))
@@ -676,10 +689,11 @@ def cmd_transition(jira, args):
     lacking = ["%s (%s)" % (spec.get("name", field_id), field_id)
                for field_id, spec in sorted((transition.get("fields") or {}).items())
                if spec.get("required") and not spec.get("hasDefaultValue")
-               and field_id not in fields]
+               and field_id not in fields
+               and not (field_id == "comment" and args.comment is not None)]
     if lacking:
         raise Failure(FIELDS_REQUIRED, "transition '%s' needs: %s; give them with "
-                                       "--resolution or --field id=value"
+                                       "--resolution, --comment or --field id=value"
                       % (transition.get("name"), ", ".join(lacking)))
     body = {"transition": {"id": transition["id"]}}
     if fields:
@@ -717,6 +731,68 @@ def _add_comment(jira, key, text):
 def cmd_comment(jira, args):
     comment_id = _add_comment(jira, args.key, mark(text_arg(args.text, args.wiki)))
     print("%s: comment %s added" % (args.key, comment_id))
+    return OK
+
+
+def _user(name):
+    """A login as printed: `me` for JIRA_USER, whose login is never printed."""
+    if not name:
+        return "unassigned"
+    return "me" if name.lower() == os.environ["JIRA_USER"].lower() else name
+
+
+def cmd_assign(jira, args):
+    login = {"me": os.environ["JIRA_USER"], "none": None}.get(args.user, args.user)
+    path = "issue/%s" % urllib.parse.quote(args.key)
+    issue = jira.call("GET", path, {"fields": "assignee"}, missing=missing_issue(args.key))
+    current = ((issue.get("fields") or {}).get("assignee") or {}).get("name")
+    if (current or "").lower() == (login or "").lower():
+        print("%s: assignee %s already, nothing changed" % (args.key, _user(current)))
+        return OK
+    try:
+        jira.call("PUT", path + "/assignee", body={"name": login},
+                  missing=missing_issue(args.key), sent=None)
+    except Failure as failure:
+        if failure.code != REFUSED:
+            raise
+        raise Failure(REFUSED, "Jira refused to assign %s to %s: no such user, or the user "
+                               "cannot be assigned in this project (%s)"
+                      % (args.key, _user(login), failure.message))
+    print("%s: assignee %s -> %s" % (args.key, _user(current), _user(login)))
+    return OK
+
+
+def _labels(jira, key):
+    issue = jira.call("GET", "issue/" + urllib.parse.quote(key), {"fields": "labels"},
+                      missing=missing_issue(key))
+    return list((issue.get("fields") or {}).get("labels") or [])
+
+
+def cmd_label(jira, args):
+    add = [label for group in args.add or [] for label in group]
+    remove = [label for group in args.remove or [] for label in group]
+    if not add and not remove:
+        raise Failure(USAGE, "give --add or --remove with at least one label")
+    for label in add + remove:
+        # Jira takes no whitespace in a label: refused here, before any request.
+        if not label or re.search(r"\s", label):
+            raise Failure(USAGE, "label '%s': a label has no spaces; write it as one word, "
+                                 "e.g. waiting_for_release" % label)
+    before = _labels(jira, args.key)
+    changes = ([{"add": label} for label in add if label not in before]
+               + [{"remove": label} for label in remove if label in before])
+    if not changes:
+        print("%s: labels %s, nothing changed" % (args.key, ", ".join(before) or "none"))
+        return OK
+    jira.call("PUT", "issue/" + urllib.parse.quote(args.key),
+              body={"update": {"labels": changes}}, missing=missing_issue(args.key),
+              sent=None)
+    try:
+        after = _labels(jira, args.key)
+    except Failure as failure:
+        raise Failure(failure.code, "%s: labels changed, but reading them back failed (do "
+                                    "not run it again): %s" % (args.key, failure.message))
+    print("%s: labels %s" % (args.key, ", ".join(after) or "none"))
     return OK
 
 
@@ -779,6 +855,17 @@ def parser():
     p.add_argument("--wiki", action="store_true",
                    help="send the text as it is, as Jira wiki markup")
     p.set_defaults(run=cmd_comment)
+
+    p = sub.add_parser("assign", help="assign a task to you, to a login, or to nobody")
+    p.add_argument("key")
+    p.add_argument("user", help="'me' (JIRA_USER), a login, or 'none' to unassign")
+    p.set_defaults(run=cmd_assign)
+
+    p = sub.add_parser("label", help="add or remove labels, the task's others untouched")
+    p.add_argument("key")
+    p.add_argument("--add", action="append", nargs="+", metavar="LABEL")
+    p.add_argument("--remove", action="append", nargs="+", metavar="LABEL")
+    p.set_defaults(run=cmd_label)
 
     p = sub.add_parser("link", help="link a branch, commit or pull request URL to a task")
     p.add_argument("key")

@@ -1,8 +1,8 @@
 # kit-tracker-jira-server
 
 A LADO kit for Jira Server and Data Center 8.4 or newer. It gives the roles of any process kit a
-skill named `tracker` that finds, reads, creates, moves and comments on tasks and links a
-branch or commit to them, through Jira's REST API v2 and a script on Python's standard
+skill named `tracker` that finds, reads, creates, moves, comments on, assigns and labels
+tasks and links a branch or commit to them, through Jira's REST API v2 and a script on Python's standard
 library (no MCP server). Jira Cloud is not supported.
 
 The kit has no agents and no flows: it adds the skill to a session led by a process kit.
@@ -53,8 +53,10 @@ Each project commits its settings to its own repository, so every worktree has t
 
 ```yaml
 project: ABC                  # the Jira project key
-statuses:                     # a word of the process -> the board's status
+statuses:                     # words process kits use -> the board's status
+  in progress: In Progress
   review: Code Review
+  done: Done
 ```
 
 Write issue type and status names as Jira shows them: on a localized Jira (a Russian UI,
@@ -72,8 +74,8 @@ Agents write descriptions and comments in Markdown; the script converts it to Ji
 wiki markup (headings, emphasis, code, lists, links; `--wiki` sends wiki markup as it is).
 Every comment and every created task's description starts with `[LADO: <agent>]`, the
 name of the agent that wrote it. Run by hand (no `LADO_AGENT` in the environment), the
-script adds no mark. By default agents only read; they create, transition, comment or
-link when their role, their step or the human asks (`skills/tracker/SKILL.md`). A process
+script adds no mark. By default agents only read; they create, transition, comment, assign,
+label or link when their role, their step or the human asks (`skills/tracker/SKILL.md`). A process
 kit says which roles touch the tracker and when, and may allow more.
 
 ## Development

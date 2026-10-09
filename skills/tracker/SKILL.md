@@ -2,9 +2,10 @@
 name: tracker
 description: >-
   The project's task tracker on Jira Server / Data Center: find tasks by JQL, read one,
-  create one (also under an epic), change its status, comment, link a branch or commit.
-  Use whenever your work touches a task in the tracker, e.g. "file a bug", "take the
-  task", "move it to review", "close it", "tell the task what changed".
+  create one (also under an epic), change its status, comment, assign it, add or remove
+  labels, link a branch or commit. Use whenever your work touches a task in the tracker,
+  e.g. "file a bug", "take the task", "assign it to me", "move it to review", "mark it
+  waiting for release", "close it", "tell the task what changed".
 ---
 
 # Tracker: Jira Server / Data Center
@@ -22,7 +23,7 @@ for them, print them or put them in a file. Whatever you write in Jira appears i
 user's name, so the script starts every comment and every new task's description with
 `[LADO: <your agent name>]`; leave that mark to it.
 
-Reading is always fine. Create, transition, comment or link only when your role, your
+Reading is always fine. Create, transition, comment, assign, label or link only when your role, your
 step or the human asks for it, and only on the tasks named; your process kit's roles and
 steps may allow more.
 
@@ -31,11 +32,13 @@ steps may allow more.
 | To | Run |
 |---|---|
 | find tasks | `search '<JQL>' [--start N] [--max N]` |
-| read a task | `get KEY-1 [--comments N]` |
+| read a task (each comment with its id) | `get KEY-1 [--comments N]` |
 | create a task | `create --type <type> --summary '<text>' [--description -] [--wiki] [--epic KEY-9] [--epic-name '<name>'] [--field id=value]` |
 | see where a task can go | `transition KEY-1` |
 | change its status | `transition KEY-1 '<status or transition>' [--resolution Fixed] [--comment -] [--wiki]` |
 | comment | `comment KEY-1 - [--wiki]` (the text on stdin) |
+| assign a task | `assign KEY-1 <me \| login \| none>` (`none` unassigns) |
+| add or remove labels | `label KEY-1 [--add L ...] [--remove L ...]` |
 | link a branch, commit or pull request | `link KEY-1 <url> [--title '<text>']` |
 
 The `link` URL is the branch's or commit's page on the repository's host; a repository
@@ -54,6 +57,11 @@ with no remote has no such page, so give the branch and the commit hash in a `co
   `statuses` in the settings ("review"). With no target it lists the transitions open to
   you now; run that first when you are unsure. A screen that asks for fields is named
   (exit 8): add `--resolution`, `--field` or `--comment`.
+- **comment**, **transition --comment**: print the new comment's id; `get` shows the
+  same id on each comment, so look for it there to see that your comment is in.
+- **assign**, **label**: when the task is already so, they change nothing and say so;
+  that is success. `label` leaves the task's other labels as they are and prints its
+  labels; a label is one word, no spaces (`waiting_for_release`).
 - Text of more than one line goes on stdin with `-`:
 
   ```bash
@@ -67,9 +75,10 @@ with no remote has no such page, so give the branch and the commit hash in a `co
 Write descriptions and comments in Markdown; the script converts it to Jira's wiki markup
 and keeps headings, bold, italic, inline code, fenced code blocks (a language Jira lacks
 becomes plain code), bullet and numbered lists (nested by indentation) and links
-`[text](url)`. Anything else is sent as it is, so wiki markup in plain text still works: `[~login]` mentions a user,
-a bare `KEY-1` links to the task. For wiki markup Markdown lacks (panels, `{noformat}`),
-write the whole text in wiki markup and add `--wiki`: it is sent unconverted.
+`[text](url)`. Mentions `[~login]` and a bare `KEY-1` pass as they are. Wiki markup that
+looks like Markdown is converted wrongly (wiki `*bold*`, `#` lists, e.g. text taken from
+`get`), and Markdown lacks panels and `{noformat}`: for such text, write the whole text in
+wiki markup and add `--wiki`: it is sent unconverted.
 Write each paragraph on one line: Jira shows every line break.
 A description given as `--field description=...` is never converted. `get` shows the
 text as Jira keeps it, in wiki markup.
@@ -86,7 +95,8 @@ project: ABC                  # the Jira project key
 issue_types:                  # a word of your process -> the project's issue type
   bug: Bug
   task: Task
-statuses:                     # a word of your process -> the board's status
+statuses:                     # words process kits use -> the board's status
+  in progress: In Progress
   review: Code Review
   done: Done
 labels: [lado]                # added to every task you create
@@ -119,5 +129,6 @@ the tracker; otherwise go on with it. Act on the exit code:
 | 11 | Jira refused the request (bad JQL, a refused field value, unknown type, transition not open) | read the line, fix the request once; if it still fails, report it |
 | 12 | Jira itself failed (5xx), or it is rate limiting requests (429) | report it |
 
-After exit 1, 9 or a 5xx exit 12 on a write, once you are told Jira answers again, `get`
-or `search` before running it again: it may have been applied. Whatever the code, never guess the task's state from a failed run: say what failed.
+A failed write may have been applied. After exit 9 on a write, once you are told Jira
+answers again, `get` or `search` before running it again; after exit 1 or a 5xx exit 12
+on a write, Jira did answer, so `get` or `search` before running it again. Whatever the code, never guess the task's state from a failed run: say what failed.
