@@ -2,7 +2,8 @@
 """Jira Server / Data Center 8.4 or newer from the command line: REST API v2, Basic auth.
 
 Commands: get, search, create, transition, comment, assign, label, link (run with --help).
-Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD and are never printed.
+Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD; the password and JIRA_URL are
+never printed, the login only as an assignee by assign.
 Text sent to Jira is Markdown, converted to Jira wiki markup (--wiki sends it as it is).
 Project settings come from .lado/tracker.yaml, found from the current directory up to
 the repository root. Python standard library only.
@@ -762,10 +763,7 @@ def cmd_comment(jira, args):
 
 
 def _user(name):
-    """A login as printed: `me` for JIRA_USER, whose login is never printed."""
-    if not name:
-        return "unassigned"
-    return "me" if name.lower() == os.environ["JIRA_USER"].lower() else name
+    return name or "unassigned"
 
 
 def cmd_assign(jira, args):

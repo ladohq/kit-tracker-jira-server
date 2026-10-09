@@ -149,7 +149,8 @@ class JiraTestCase(unittest.TestCase):
             except SystemExit as exit:
                 code = exit.code
         self.assertNotIn(PASSWORD, out.getvalue() + err.getvalue())
-        self.assertNotIn("agent.user", out.getvalue() + err.getvalue())
+        if argv[:1] != ("assign",):  # assign prints the assignee, JIRA_USER's login too
+            self.assertNotIn("agent.user", out.getvalue() + err.getvalue())
         return code, out.getvalue(), err.getvalue()
 
     def sent(self, method, path):
@@ -587,7 +588,7 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[0]["body"], {"name": "bob"})
         code, out, err = self.run_jira("assign", "TEST-1", "me")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, "TEST-1: assignee ann -> me\n")
+        self.assertEqual(out, "TEST-1: assignee ann -> agent.user\n")
         self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[1]["body"],
                          {"name": "agent.user"})
 
@@ -595,11 +596,11 @@ class CommandsTest(JiraTestCase):
         self.route_assignee("agent.user")
         code, out, err = self.run_jira("assign", "TEST-1", "none")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, "TEST-1: assignee me -> unassigned\n")
+        self.assertEqual(out, "TEST-1: assignee agent.user -> unassigned\n")
         self.assertEqual(self.sent("PUT", "issue/TEST-1/assignee")[0]["body"], {"name": None})
 
     def test_assign_already_so_changes_nothing(self):
-        for name, user, shown in [("Agent.User", "me", "me"), ("ann", "ANN", "ann"),
+        for name, user, shown in [("Agent.User", "me", "Agent.User"), ("ann", "ANN", "ann"),
                                   (None, "none", "unassigned")]:
             self.route_assignee(name)
             code, out, err = self.run_jira("assign", "TEST-1", user)
