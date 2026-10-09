@@ -516,9 +516,12 @@ class CommandsTest(JiraTestCase):
         code, _, err = self.run_jira("transition", "TEST-1", "done")
         self.assertEqual(code, jira.FIELDS_REQUIRED)
         self.assertIn("--comment", err)
+        self.jira.route("GET", "issue/TEST-1/comment", {"comments": [
+            {"id": "200", "body": "\\[LADO: developer\\]\r\n\r\nwhy"},
+            {"id": "201", "body": "another"}]})
         code, out, err = self.run_jira("transition", "TEST-1", "done", "--comment", "why")
         self.assertEqual(code, 0, err)
-        self.assertIn("-> Done, comment added", out)
+        self.assertIn("-> Done, comment 200 added", out)
         body = self.sent("POST", "issue/TEST-1/transitions")[0]["body"]
         self.assertNotIn("fields", body)
         self.assertEqual(body["update"]["comment"][0]["add"]["body"],
@@ -691,6 +694,23 @@ class ErrorsTest(JiraTestCase):
         self.assertFails(jira.NO_ACCESS, "no access (403)", "assign", "TEST-1", "me")
         self.jira.route("PUT", "issue/TEST-1", denied, status=403)
         self.assertFails(jira.NO_ACCESS, "no access (403)", "label", "TEST-1", "--add", "x")
+
+    def test_assign_without_permission_is_not_a_credentials_failure(self):
+        # Jira's documented answer to assigning without the permission is 401.
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {"assignee": None}})
+        self.jira.route("PUT", "issue/TEST-1/assignee", None, status=401)
+        self.assertFails(jira.NO_ACCESS, "no permission to assign TEST-1 (401)",
+                         "assign", "TEST-1", "me")
+        self.jira.route("PUT", "issue/TEST-1/assignee", None, status=401, headers={
+            "X-Authentication-Denied-Reason": "CAPTCHA_CHALLENGE; login-url=/login.jsp"})
+        self.assertFails(jira.CREDENTIALS_REFUSED, "CAPTCHA", "assign", "TEST-1", "me")
+
+    def test_assign_unknown_user_answered_404(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {"assignee": None}})
+        self.jira.route("PUT", "issue/TEST-1/assignee",
+                        {"errorMessages": ["User 'nobody' does not exist."]}, status=404)
+        self.assertFails(jira.REFUSED, "Jira refused to assign TEST-1 to nobody: no such user",
+                         "assign", "TEST-1", "nobody")
 
     def test_assign_unknown_user(self):
         self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {"assignee": None}})

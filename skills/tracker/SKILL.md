@@ -58,7 +58,8 @@ with no remote has no such page, so give the branch and the commit hash in a `co
   you now; run that first when you are unsure. A screen that asks for fields is named
   (exit 8): add `--resolution`, `--field` or `--comment`.
 - **comment**, **transition --comment**: print the new comment's id; `get` shows the
-  same id on each comment, so look for it there to see that your comment is in.
+  same id on each comment, so look for it there to see that your comment is in. If
+  `transition --comment` prints no id, find your `[LADO: …]` comment in `get`.
 - **assign**, **label**: when the task is already so, they change nothing and say so;
   that is success. `label` leaves the task's other labels as they are and prints its
   labels; a label is one word, no spaces (`waiting_for_release`).
@@ -131,4 +132,4 @@ the tracker; otherwise go on with it. Act on the exit code:
 
 A failed write may have been applied. After exit 9 on a write, once you are told Jira
 answers again, `get` or `search` before running it again; after exit 1 or a 5xx exit 12
-on a write, Jira did answer, so `get` or `search` before running it again. Whatever the code, never guess the task's state from a failed run: say what failed.
+on a write, there is nothing to wait for: `get` or `search` before running it again. Whatever the code, never guess the task's state from a failed run: say what failed.

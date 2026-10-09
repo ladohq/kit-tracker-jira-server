@@ -62,6 +62,8 @@ class Failure(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.status = None  # the HTTP status of a refused request
+        self.denied = False  # Jira's X-Authentication-Denied-Reason came with it
 
 
 # --- .lado/tracker.yaml: a strict YAML subset ------------------------------------------
@@ -277,7 +279,10 @@ class Jira:
             with self.opener.open(request, timeout=TIMEOUT) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
-            raise self._http_failure(error, method, missing, sent)
+            failure = self._http_failure(error, method, missing, sent)
+            failure.status = error.code
+            failure.denied = bool(error.headers.get("X-Authentication-Denied-Reason"))
+            raise failure
         except urllib.error.URLError as error:
             raise self._network_failure(error.reason, method)
         except (socket.timeout, TimeoutError, ConnectionError, ssl.SSLError,
@@ -710,7 +715,8 @@ def cmd_transition(jira, args):
               missing=missing_issue(args.key), sent=sent)
     moved = "%s: %s -> %s" % (args.key, current, _name(transition.get("to")))
     if inline:
-        moved += ", comment added"
+        found = _comment_id(jira, args.key, comment)
+        moved += ", comment %s added" % found if found else ", comment added"
     elif comment is not None:
         try:
             moved += ", comment %s added" % _add_comment(jira, args.key, comment)
@@ -720,6 +726,21 @@ def cmd_transition(jira, args):
                                         "with comment): %s" % (moved, failure.message))
     print(moved)
     return OK
+
+
+def _comment_id(jira, key, text):
+    """The id of the newest comment with this text, or None: Jira returns no id for a
+    comment sent with a transition, and the transition is done whatever this finds."""
+    try:
+        result = jira.call("GET", "issue/%s/comment" % urllib.parse.quote(key),
+                           missing=missing_issue(key))
+    except Failure:
+        return None
+    want = text.replace("\r\n", "\n").strip()
+    for comment in reversed((result or {}).get("comments") or []):
+        if (comment.get("body") or "").replace("\r\n", "\n").strip() == want:
+            return comment.get("id")
+    return None
 
 
 def _add_comment(jira, key, text):
@@ -753,11 +774,16 @@ def cmd_assign(jira, args):
         jira.call("PUT", path + "/assignee", body={"name": login},
                   missing=missing_issue(args.key), sent=None)
     except Failure as failure:
-        if failure.code != REFUSED:
-            raise
-        raise Failure(REFUSED, "Jira refused to assign %s to %s: no such user, or the user "
-                               "cannot be assigned in this project (%s)"
-                      % (args.key, _user(login), failure.message))
+        # Jira answers this request with 401 for a missing permission and 404 for an
+        # unknown user; the GET above has just passed the login and found the task.
+        if failure.status == 401 and not failure.denied:
+            raise Failure(NO_ACCESS, "no permission to assign %s (401)" % args.key)
+        if failure.status == 404 or failure.code == REFUSED:
+            raise Failure(REFUSED, "Jira refused to assign %s to %s: no such user, or the "
+                                   "user cannot be assigned in this project (%s)"
+                          % (args.key, _user(login), failure.message
+                             if failure.status != 404 else "404"))
+        raise
     print("%s: assignee %s -> %s" % (args.key, _user(current), _user(login)))
     return OK
 
