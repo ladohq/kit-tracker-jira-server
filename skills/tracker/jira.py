@@ -3,6 +3,7 @@
 
 Commands: get, search, create, transition, comment, link (run with --help).
 Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD and are never printed.
+Text sent to Jira is Markdown, converted to Jira wiki markup (--wiki sends it as it is).
 Project settings come from .lado/tracker.yaml, found from the current directory up to
 the repository root. Python standard library only.
 """
@@ -12,6 +13,7 @@ import base64
 import http.client
 import json
 import os
+import re
 import socket
 import ssl
 import sys
@@ -346,6 +348,91 @@ class Jira:
         return Failure(REFUSED, "Jira refused the request (%d)%s" % (code, detail))
 
 
+# --- Markdown -> Jira wiki markup: a minimal subset, the rest passes as it is ----------
+
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*([\w+#.-]*)\s*$")
+HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$")
+LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
+CODE_SPAN = re.compile(r"(`+)(.+?)\1")
+LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
+BOLD = re.compile(r"(?<![\w*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w*])"
+                  r"|(?<![\w_])__(?=\S)(.+?)(?<=\S)__(?![\w_])")
+ITALIC = re.compile(r"(?<![\w*])\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?![\w*])")
+SLOT = re.compile("\x00(\\d+)\x00")
+
+
+def _inline(text):
+    # Code spans and link targets are set aside first, so no markup is read inside them.
+    slots = []
+
+    def keep(value):
+        slots.append(value)
+        return "\x00%d\x00" % (len(slots) - 1)
+
+    text = CODE_SPAN.sub(lambda m: keep("{{%s}}" % m.group(2).strip()), text)
+    text = LINK.sub(lambda m: "[%s|%s]" % (m.group(1), keep(m.group(2))), text)
+    text = BOLD.sub(lambda m: "\x01%s\x01" % (m.group(1) or m.group(2)), text)
+    text = ITALIC.sub(r"_\1_", text).replace("\x01", "*")
+    while SLOT.search(text):
+        text = SLOT.sub(lambda m: slots[int(m.group(1))], text)
+    return text
+
+
+def _wiki(text):
+    out = []
+    lists = []  # (indent, "*" or "#") of the open list levels
+    fence = None
+    for line in text.split("\n"):
+        if fence:
+            if line.strip().startswith(fence) and not line.strip().strip(fence[0]):
+                out.append("{code}")
+                fence = None
+            else:
+                out.append(line)
+            continue
+        match = FENCE.match(line)
+        if match:
+            fence = match.group(1)
+            out.append("{code:%s}" % match.group(2) if match.group(2) else "{code}")
+            lists = []
+            continue
+        match = LIST_ITEM.match(line)
+        if match:
+            indent = len(match.group(1).expandtabs(4))
+            kind = "#" if match.group(2)[0].isdigit() else "*"
+            while lists and lists[-1][0] > indent:
+                lists.pop()
+            if lists and lists[-1][0] == indent:
+                lists[-1] = (indent, kind)
+            else:
+                lists.append((indent, kind))
+            out.append("%s %s" % ("".join(k for _, k in lists), _inline(match.group(3))))
+            continue
+        if line.strip():
+            lists = []
+        match = HEADING.match(line)
+        if match:
+            out.append("h%d. %s" % (len(match.group(1)), _inline(match.group(2))))
+        else:
+            out.append(_inline(line))
+    if fence:  # a block left open is closed before the text's last newline
+        out.insert(len(out) - (out[-1] == ""), "{code}")
+    return "\n".join(out)
+
+
+def to_wiki(text):
+    """Markdown to Jira wiki markup; the text as it is if the conversion fails."""
+    try:
+        return _wiki(text)
+    except Exception:
+        return text
+
+
+def text_arg(value, wiki):
+    text = read_text(value)
+    return text if wiki else to_wiki(text)
+
+
 # --- commands --------------------------------------------------------------------------
 
 
@@ -464,7 +551,7 @@ def cmd_create(jira, args):
     fields = {"project": {"key": project}, "issuetype": {"id": type_id},
               "summary": args.summary}
     if args.description is not None:
-        fields["description"] = read_text(args.description)
+        fields["description"] = text_arg(args.description, args.wiki)
     if config["labels"]:
         fields["labels"] = list(config["labels"])
     if args.epic:
@@ -553,7 +640,8 @@ def cmd_transition(jira, args):
     if fields:
         body["fields"] = fields
     if args.comment is not None:
-        body["update"] = {"comment": [{"add": {"body": mark(read_text(args.comment))}}]}
+        comment = mark(text_arg(args.comment, args.wiki))
+        body["update"] = {"comment": [{"add": {"body": comment}}]}
     sent = list(fields) + (["comment"] if args.comment is not None else [])
     jira.call("POST", "issue/%s/transitions" % urllib.parse.quote(args.key), body=body,
               missing=missing_issue(args.key), sent=sent)
@@ -562,7 +650,7 @@ def cmd_transition(jira, args):
 
 
 def cmd_comment(jira, args):
-    body = {"body": mark(read_text(args.text))}
+    body = {"body": mark(text_arg(args.text, args.wiki))}
     result = jira.call("POST", "issue/%s/comment" % urllib.parse.quote(args.key),
                        body=body, missing=missing_issue(args.key), sent=None)
     print("%s: comment %s added" % (args.key, (result or {}).get("id")))
@@ -601,7 +689,9 @@ def parser():
     p = sub.add_parser("create", help="create a task in the project")
     p.add_argument("--type", required=True, help="issue type, or a word of issue_types")
     p.add_argument("--summary", required=True)
-    p.add_argument("--description", help="wiki markup; '-' reads it from stdin")
+    p.add_argument("--description", help="Markdown; '-' reads it from stdin")
+    p.add_argument("--wiki", action="store_true",
+                   help="send --description as it is, as Jira wiki markup")
     p.add_argument("--epic", help="key of the epic (needs fields.epic_link)")
     p.add_argument("--epic-name", help="Epic Name, for an epic (needs fields.epic_name)")
     p.add_argument("--field", action="append", metavar="ID=VALUE",
@@ -613,14 +703,18 @@ def parser():
     p.add_argument("target", nargs="?",
                    help="transition id or name, target status, or a word of statuses")
     p.add_argument("--resolution", help="resolution name, when the screen asks for it")
-    p.add_argument("--comment", help="comment to add; '-' reads it from stdin")
+    p.add_argument("--comment", help="comment to add, Markdown; '-' reads it from stdin")
+    p.add_argument("--wiki", action="store_true",
+                   help="send --comment as it is, as Jira wiki markup")
     p.add_argument("--field", action="append", metavar="ID=VALUE",
                    help="a field the screen asks for; a value starting with { or [ is JSON")
     p.set_defaults(run=cmd_transition)
 
     p = sub.add_parser("comment", help="comment on a task")
     p.add_argument("key")
-    p.add_argument("text", help="wiki markup; '-' reads it from stdin")
+    p.add_argument("text", help="Markdown; '-' reads it from stdin")
+    p.add_argument("--wiki", action="store_true",
+                   help="send the text as it is, as Jira wiki markup")
     p.set_defaults(run=cmd_comment)
 
     p = sub.add_parser("link", help="link a branch, commit or pull request URL to a task")

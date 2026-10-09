@@ -68,6 +68,8 @@ The other sections (issue types, labels, custom field ids such as Epic Link, whi
 
 ## What agents write
 
+Agents write descriptions and comments in Markdown; the script converts it to Jira's
+wiki markup (headings, emphasis, code, lists, links; `--wiki` sends wiki markup as it is).
 Every comment and every created task's description starts with `[LADO: <agent>]`, the
 name of the agent that wrote it. Run by hand (no `LADO_AGENT` in the environment), the
 script adds no mark. By default agents only read; they create, transition, comment or

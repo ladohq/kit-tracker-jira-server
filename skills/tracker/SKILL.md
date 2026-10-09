@@ -32,10 +32,10 @@ steps may allow more.
 |---|---|
 | find tasks | `search '<JQL>' [--start N] [--max N]` |
 | read a task | `get KEY-1 [--comments N]` |
-| create a task | `create --type <type> --summary '<text>' [--description -] [--epic KEY-9] [--epic-name '<name>'] [--field id=value]` |
+| create a task | `create --type <type> --summary '<text>' [--description -] [--wiki] [--epic KEY-9] [--epic-name '<name>'] [--field id=value]` |
 | see where a task can go | `transition KEY-1` |
-| change its status | `transition KEY-1 '<status or transition>' [--resolution Fixed] [--comment -]` |
-| comment | `comment KEY-1 -` (the text on stdin) |
+| change its status | `transition KEY-1 '<status or transition>' [--resolution Fixed] [--comment -] [--wiki]` |
+| comment | `comment KEY-1 - [--wiki]` (the text on stdin) |
 | link a branch, commit or pull request | `link KEY-1 <url> [--title '<text>']` |
 
 The `link` URL is the branch's or commit's page on the repository's host; a repository
@@ -58,35 +58,20 @@ with no remote has no such page, so give the branch and the commit hash in a `co
 
   ```bash
   python3 ${SKILL_DIR}/jira.py comment KEY-1 - <<'EOF'
-  *Done:* the login form checks the password length.
+  **Done:** the login form checks the password length.
   EOF
   ```
 
-## Writing in Jira: wiki markup, not Markdown
+## Writing in Jira: Markdown
 
-Jira Server shows descriptions and comments as wiki markup and the script sends your
-text as it is:
-
-| Want | Write |
-|---|---|
-| heading | `h1.` to `h6.` at the start of a line: `h2. Steps` |
-| bold, italic, strike, code | `*bold*`, `_italic_`, `-strike-`, `{{code}}` |
-| code block | `{code:python}` ... `{code}` on lines of their own; `{noformat}` for logs |
-| quote | `bq. one line`, or `{quote}` ... `{quote}` |
-| panel | `{panel:title=Result}` ... `{panel}` |
-| table, link | see below the table |
-| bullet, numbered list | `* item`, `# item` (`**` nests) |
-| mention a user | `[~login]` |
-
-Tables and links use `|`; a task's bare key `KEY-1` links to it:
-
-```
-||Head||Head||
-|cell|cell|
-[text|https://example.com/page]
-```
-
-A blank line separates paragraphs; inside `{code}` and `{noformat}` nothing is markup.
+Write descriptions and comments in Markdown; the script converts it to Jira's wiki markup
+and keeps headings, bold, italic, inline code, fenced code blocks (with their language),
+bullet and numbered lists (nested by indentation) and links `[text](url)`. Anything else
+is sent as it is, so wiki markup in plain text still works: `[~login]` mentions a user,
+a bare `KEY-1` links to the task. For wiki markup Markdown lacks (panels, `{noformat}`),
+write the whole text in wiki markup and add `--wiki`: it is sent unconverted.
+A description given as `--field description=...` is never converted. `get` shows the
+text as Jira keeps it, in wiki markup.
 
 ## Project settings: `.lado/tracker.yaml`
 

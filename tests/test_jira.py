@@ -218,6 +218,44 @@ class ConfigTest(unittest.TestCase):
                          os.path.join(os.path.abspath(repo), ".lado", "tracker.yaml"))
 
 
+class MarkdownTest(unittest.TestCase):
+    def assertWiki(self, markdown, wiki):
+        self.assertEqual(jira.to_wiki(markdown), wiki)
+
+    def test_headings(self):
+        self.assertWiki("# One\n###### Six ##", "h1. One\nh6. Six")
+        self.assertWiki("#no space", "#no space")
+
+    def test_emphasis_and_code(self):
+        self.assertWiki("**b** __b__ *i* _i_ `c`", "*b* *b* _i_ _i_ {{c}}")
+        self.assertWiki("**bold with *italic***", "*bold with _italic_*")
+        self.assertWiki("`a **b** [x](y)`", "{{a **b** [x](y)}}")
+        self.assertWiki("2 * 3 * 4 and snake_case_name", "2 * 3 * 4 and snake_case_name")
+
+    def test_links(self):
+        self.assertWiki("see [the PR](https://h/a__b__c) now",
+                        "see [the PR|https://h/a__b__c] now")
+        self.assertWiki("[**bold** link](http://x)", "[*bold* link|http://x]")
+
+    def test_lists_nest_by_indent(self):
+        self.assertWiki("- a\n  * b\n    1. c\n  + d\n- e\n\n1. f\n2. g",
+                        "* a\n** b\n**# c\n** d\n* e\n\n# f\n# g")
+        self.assertWiki("1. a\n   - b", "# a\n#* b")
+
+    def test_code_block_content_is_untouched(self):
+        self.assertWiki("```python\n# not a heading\n**x** `y`\n```\nafter **z**",
+                        "{code:python}\n# not a heading\n**x** `y`\n{code}\nafter *z*")
+        self.assertWiki("~~~\n- x\n", "{code}\n- x\n{code}\n")
+
+    def test_wiki_characters_and_the_rest_pass_as_they_are(self):
+        text = "[~jdoe] {noformat} [text|http://x] ||h|| > quote\n| a | b |\n"
+        self.assertWiki(text, text)
+
+    def test_failure_sends_the_original_text(self):
+        with mock.patch.object(jira, "_wiki", side_effect=RuntimeError):
+            self.assertEqual(jira.to_wiki("**x**"), "**x**")
+
+
 class CommandsTest(JiraTestCase):
     def test_get(self):
         self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
@@ -277,7 +315,7 @@ class CommandsTest(JiraTestCase):
         self.route_createmeta()
         code, out, err = self.run_jira("create", "--type", "bug", "--summary", "Crash",
                                        "--description", "-", "--epic", "TEST-9",
-                                       stdin="h2. Steps\n# run")
+                                       stdin="## Steps\n1. run")
         self.assertEqual(code, 0, err)
         self.assertIn("TEST-5 created", out)
         fields = self.sent("POST", "issue")[0]["body"]["fields"]
@@ -287,13 +325,21 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(fields["labels"], ["lado", "agent made"])
         self.assertEqual(fields["customfield_10100"], "TEST-9")
 
+    def test_create_wiki_description_is_not_converted(self):
+        self.route_createmeta()
+        code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "x", "--wiki",
+                                     "--description", "**as is**")
+        self.assertEqual(code, 0, err)
+        fields = self.sent("POST", "issue")[0]["body"]["fields"]
+        self.assertEqual(fields["description"], "[LADO: developer]\n\n**as is**")
+
     def test_marked_description_through_field(self):
         self.route_createmeta()
         code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "x",
-                                     "--field", "description=by field")
+                                     "--field", "description=by **field**")
         self.assertEqual(code, 0, err)
         fields = self.sent("POST", "issue")[0]["body"]["fields"]
-        self.assertEqual(fields["description"], "[LADO: developer]\n\nby field")
+        self.assertEqual(fields["description"], "[LADO: developer]\n\nby **field**")
 
     def test_reporter_is_left_to_jira(self):
         self.route_createmeta(required=["reporter"])
@@ -383,13 +429,17 @@ class CommandsTest(JiraTestCase):
     def test_transition_by_process_word_with_comment(self):
         self.route_transitions()
         code, out, err = self.run_jira("transition", "TEST-1", "review",
-                                       "--comment", "Ready.")
+                                       "--comment", "**Ready.**")
         self.assertEqual(code, 0, err)
         self.assertIn("TEST-1: In Progress -> Code Review", out)
         body = self.sent("POST", "issue/TEST-1/transitions")[0]["body"]
         self.assertEqual(body["transition"], {"id": "21"})
         self.assertEqual(body["update"]["comment"][0]["add"]["body"],
-                         "[LADO: developer]\n\nReady.")
+                         "[LADO: developer]\n\n*Ready.*")
+        self.run_jira("transition", "TEST-1", "review", "--wiki", "--comment", "**as is**")
+        body = self.sent("POST", "issue/TEST-1/transitions")[1]["body"]
+        self.assertEqual(body["update"]["comment"][0]["add"]["body"],
+                         "[LADO: developer]\n\n**as is**")
 
     def test_transition_names_required_fields(self):
         self.route_transitions(required=True)
@@ -418,7 +468,7 @@ class CommandsTest(JiraTestCase):
 
     def test_comment_marked_only_for_an_agent(self):
         self.jira.route("POST", "issue/TEST-1/comment", {"id": "100"}, status=201)
-        code, out, err = self.run_jira("comment", "TEST-1", "*Done*: see [PR|http://x]")
+        code, out, err = self.run_jira("comment", "TEST-1", "**Done**: see [PR](http://x)")
         self.assertEqual(code, 0, err)
         self.assertIn("comment 100 added", out)
         self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[0]["body"]["body"],
@@ -427,6 +477,14 @@ class CommandsTest(JiraTestCase):
             self.run_jira("comment", "TEST-1", "by hand")
         self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[1]["body"]["body"],
                          "by hand")
+
+    def test_comment_wiki_is_sent_as_it_is(self):
+        self.jira.route("POST", "issue/TEST-1/comment", {"id": "1"}, status=201)
+        code, _, err = self.run_jira("comment", "TEST-1", "--wiki", "-",
+                                     stdin="{panel}\n**x**\n{panel}\n")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[0]["body"]["body"],
+                         "[LADO: developer]\n\n{panel}\n**x**\n{panel}\n")
 
     def test_comment_works_without_config(self):
         os.remove(os.path.join(self.repo, ".lado", "tracker.yaml"))
