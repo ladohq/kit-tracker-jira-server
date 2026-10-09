@@ -496,6 +496,17 @@ class CommandsTest(JiraTestCase):
         self.assertIn("do not run the transition again", err)
         self.assertEqual(len(self.sent("POST", "issue/TEST-1/transitions")), 1)
 
+    def test_transition_done_but_comment_unanswered_says_check_first(self):
+        self.route_transitions()
+        self.jira.route("POST", "issue/TEST-1/comment", None, status=504)
+        code, _, err = self.run_jira("transition", "TEST-1", "review", "--comment", "x")
+        self.assertEqual(code, jira.SERVER_ERROR)
+        self.assertIn("done, but the comment may not have been added", err)
+        self.assertIn("check with get, then send the comment", err)
+        self.jira.route("POST", "issue/TEST-1/comment", None, status=429)
+        code, _, err = self.run_jira("transition", "TEST-1", "review", "--comment", "x")
+        self.assertIn("done, but the comment was not added", err)
+
     def test_transition_names_required_fields(self):
         self.route_transitions(required=True)
         code, _, err = self.run_jira("transition", "TEST-1", "done")
@@ -711,6 +722,16 @@ class ErrorsTest(JiraTestCase):
                         {"errorMessages": ["User 'nobody' does not exist."]}, status=404)
         self.assertFails(jira.REFUSED, "Jira refused to assign TEST-1 to nobody: no such user",
                          "assign", "TEST-1", "nobody")
+
+    def test_unassign_refused_names_the_reason(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
+            "assignee": {"name": "ann"}}})
+        self.jira.route("PUT", "issue/TEST-1/assignee",
+                        {"errors": {"assignee": "Issues must be assigned."}}, status=400)
+        err = self.assertFails(jira.REFUSED, "Jira refused to unassign TEST-1: Jira refused "
+                               "the values: assignee (Issues must be assigned.)",
+                               "assign", "TEST-1", "none")
+        self.assertNotIn("no such user", err)
 
     def test_assign_unknown_user(self):
         self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {"assignee": None}})

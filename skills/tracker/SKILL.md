@@ -60,6 +60,8 @@ with no remote has no such page, so give the branch and the commit hash in a `co
 - **comment**, **transition --comment**: print the new comment's id; `get` shows the
   same id on each comment, so look for it there to see that your comment is in. If
   `transition --comment` prints no id, find your `[LADO: …]` comment in `get`.
+- **assign**: use only a login you were given; on exit 11 report it and do not try
+  another login, since a guess may assign the task to someone else.
 - **assign**, **label**: when the task is already so, they change nothing and say so;
   that is success. `label` leaves the task's other labels as they are and prints its
   labels; a label is one word, no spaces (`waiting_for_release`).

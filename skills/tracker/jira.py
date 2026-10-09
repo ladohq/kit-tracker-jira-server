@@ -721,9 +721,15 @@ def cmd_transition(jira, args):
         try:
             moved += ", comment %s added" % _add_comment(jira, args.key, comment)
         except Failure as failure:
-            raise Failure(failure.code, "%s done, but the comment was not added (do not "
-                                        "run the transition again; send the comment "
-                                        "with comment): %s" % (moved, failure.message))
+            # No answer or a 5xx may follow a comment Jira did add; a 429 runs nothing.
+            unsure = failure.code == UNREACHABLE or (failure.code == SERVER_ERROR
+                                                     and failure.status != 429)
+            raise Failure(failure.code, "%s done, but %s (do not run the transition again; "
+                                        "%s): %s" % (
+                moved, "the comment may not have been added" if unsure
+                else "the comment was not added",
+                "check with get, then send the comment with comment if it is not there"
+                if unsure else "send the comment with comment", failure.message))
     print(moved)
     return OK
 
@@ -778,6 +784,9 @@ def cmd_assign(jira, args):
         # unknown user; the GET above has just passed the login and found the task.
         if failure.status == 401 and not failure.denied:
             raise Failure(NO_ACCESS, "no permission to assign %s (401)" % args.key)
+        if login is None and failure.code == REFUSED:
+            raise Failure(REFUSED, "Jira refused to unassign %s: %s"
+                          % (args.key, failure.message))
         if failure.status == 404 or failure.code == REFUSED:
             raise Failure(REFUSED, "Jira refused to assign %s to %s: no such user, or the "
                                    "user cannot be assigned in this project (%s)"
