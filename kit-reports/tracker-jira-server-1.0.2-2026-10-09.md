@@ -2,14 +2,20 @@
 
 - Дата: 2026-10-09
 - Кит: `.` (worktree запуска `improve/tracker-jira-server-1-0-2`), путь задан
-- Коммит: f20af91 (`kit.yaml` `version: 1.0.2`)
+- Коммит: e9000a2 (`kit.yaml` `version: 1.0.2`); визит 1 оценивал f20af91
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно отчёта
   `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (a0b8837, `assessment`). База —
   a0b8837: её называет план. `git diff a0b8837 -- kit.yaml README.md BLUEPRINT.md agents
   flows skills` затрагивает 4 файла: BLUEPRINT.md +10/−4, kit.yaml, SKILL.md +4/−5,
-  jira.py +41/−8. Первый визит `evaluate`.
-- Проходы: изменение — около 60 строк. Три прохода я сделал сам, без субагентов.
+  jira.py +41/−8. Визит 2 `evaluate`: после гейта выпуска, где человек сказал «исправить
+  F5.6 и сразу проверить». С визита 1 (19383cc) изменились `jira.py` +5/−1 (5eca454), тесты
+  и BLUEPRINT.md +3/−2 (e9000a2: R3 и строка журнала 1.0.2).
+- Проходы визита 2: изменение — 8 строк. Три прохода я сделал сам: ветка «already in»
+  `cmd_transition` и её сбои; R3 и журнал против плана; тесты против плана. Затем
+  полный проход по `cmd_transition` и BLUEPRINT R3. Новых находок нет; однопроходных
+  отброшено 0, оставлено 0.
+- Проходы визита 1: изменение — около 60 строк. Три прохода я сделал сам, без субагентов.
   Проход 1: `jira.py` (`CODE_LANGUAGES`, `_language`, `mark`, `cmd_transition`,
   `_add_comment`) с запусками конвертера на 9 входах. Проход 2: SKILL.md (раздел
   «Writing in Jira» и таблица кодов выхода) против поведения `cmd_transition`.
@@ -20,8 +26,9 @@
 - Оговорка: вывод скрипта подтверждён тестами и запусками. Как Jira 8.13 покажет
   `{code:none}` и `\[LADO: …\]`, проверено в пробе `trial-1.0.1` на ручных примерах.
   Ветка `transition` с полем `comment` на экране проверена только на поддельной Jira:
-  на тестовой Jira у всех переходов `fields: {}`. План назначает повторную пробу
-  пунктов 1–3 перед гейтом выпуска.
+  на тестовой Jira у всех переходов `fields: {}`. Пункты 1–3 подтверждены на живой Jira
+  (`trial-1.0.2`). Ту же ветку и F5.6 там не проверяли; план назначает пробу F5.6
+  перед гейтом выпуска.
 
 Находки — кандидаты для человека, а не оценка «прошёл/не прошёл».
 
@@ -32,8 +39,8 @@
 | a. `lado kits check` | OK; 0 предупреждений |
 | a. Бюджет | green; нет жёлтых и красных мер |
 | a. Потоки | 0 нарисовано (у кита нет потоков, R2); скелетов в BLUEPRINT.md нет |
-| b. Рубрика | 0 находок в изменённом тексте; F5.1 RESOLVED; пункты плана 1–4 RESOLVED; 1 находка в «Missed earlier» (F5.6, medium, не блокирует); 12 из 12 критериев без находок в изменённом тексте |
-| Охват | повторная оценка изменённого текста, с полным проходом по 4 файлам, которых касается дифф (kit.yaml, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); тесты: 63, OK |
+| b. Рубрика | 0 открытых находок; F5.1 и F5.6 RESOLVED; пункты плана RESOLVED; 12 из 12 критериев без находок |
+| Охват | повторная оценка изменённого текста, с полным проходом по 4 файлам, которых касается дифф (kit.yaml, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); тесты: 64, OK |
 | Правило остановки | выполнено: в изменённом тексте 0 high, 0 medium |
 
 Счёт относится только к тому, что названо в строке «Охват»: счёт повторной оценки и счёт
@@ -79,10 +86,7 @@ error: kit.yaml: states must be a non-empty mapping   (exit status 2)
 
 ## Исправить сначала
 
-Блокирующих находок нет. Не блокирует, но стоит исправить в следующей версии:
-
-1. `transition --comment` молча теряет комментарий, если задача уже в целевом статусе
-   (F5.6, «Missed earlier»).
+Ничего: открытых находок нет.
 
 ## Находки
 
@@ -99,7 +103,7 @@ when your role, / your step or the human asks for it». Отдельный POST 
 ### 3. Готовность и исходы
 
 Не применимо: потоков нет. Новый частичный исход (переход сделан, комментарий нет)
-выдаёт одну строку с кодом самого сбоя комментария, `jira.py:700`
+выдаёт одну строку с кодом самого сбоя комментария, `jira.py:704`
 `"%s done, but the comment was not added (do not "`. Строка говорит агенту, что делать.
 Таблица кодов SKILL.md остаётся верной: при 9 и 12 к строке добавляется `APPLIED`
 («check with get»).
@@ -110,7 +114,7 @@ when your role, / your step or the human asks for it». Отдельный POST 
 `test_code_block_language_is_one_jira_knows`, `test_transition_comment_on_its_screen`,
 `test_transition_without_comment_field_posts_the_comment_after`,
 `test_transition_done_but_comment_failed_says_so`; метку проверяют 8 утверждений.
-Всего 63 теста, OK. Ветку «поле `comment` на экране» Jira 8.13 не проверяли (см. оговорку).
+`test_transition_already_there_still_posts_the_comment` (F5.6). Всего 64 теста, OK. Ветку «поле `comment` на экране» Jira 8.13 не проверяли (см. оговорку).
 
 ### 5. Противоречия
 
@@ -168,13 +172,14 @@ SKILL.md:68-69 «fenced code blocks (a language Jira lacks / becomes plain code)
 Новый POST `issue/{key}/comment` уходит только при `--comment` и только после
 успешного перехода. Если он не прошёл, строка запрещает повторять переход:
 «do not run the transition again; send the comment with comment». Так задача не получит
-второй переход.
+второй переход. В ветке «already in» (F5.6) уходит только комментарий,
+без перехода: тест проверяет, что `POST issue/TEST-1/transitions` не отправлялся.
 
 ## Known holes
 
 | Known hole | Находка, или как кит это решает |
 |---|---|
-| 1. Red check sent back with no environment cause considered | Коды разделяют окружение (4, 5, 9, 10, 12 — «report it») и ошибку запроса (2, 8, 11 — «fix»). Сбой комментария после перехода сохраняет код своего сбоя (`jira.py:700`). |
+| 1. Red check sent back with no environment cause considered | Коды разделяют окружение (4, 5, 9, 10, 12 — «report it») и ошибку запроса (2, 8, 11 — «fix»). Сбой комментария после перехода сохраняет код своего сбоя (`jira.py:704`). |
 | 2. Work outside a flow, merge without a gate | Нет git-работы. Запись в Jira разрешена только так: SKILL.md:25-26 «only when your role, / your step or the human asks for it». |
 | 3. Path outside the run's worktree | Не изменилось: `.lado/tracker.yaml` «from the current directory up to the repository root». |
 | 4. Verdict without a severity threshold | Не применимо: рецензента нет. |
@@ -182,7 +187,7 @@ SKILL.md:68-69 «fenced code blocks (a language Jira lacks / becomes plain code)
 
 ## Not traced
 
-Ничего. R3 называет отдельный комментарий перехода (BLUEPRINT.md:29-31), R9 —
+Ничего. R3 называет отдельный комментарий перехода и комментарий к задаче, уже стоящей в целевом статусе (BLUEPRINT.md:29-32), R9 —
 экранированную метку, R12 — языки. Меры бюджета green. Потоков и скелетов нет (R2).
 Заголовок раздела 4 BLUEPRINT обновлён до «(1.0.2)», значения совпадают с выводом скрипта
 выше.
@@ -194,10 +199,11 @@ SKILL.md:68-69 «fenced code blocks (a language Jira lacks / becomes plain code)
 | Находка / пункт | Статус | Доказательство |
 |---|---|---|
 | F5.1 [medium] язык блока кода | RESOLVED | `jira.py:435` `out.append("{code:%s}" % _language(match.group(2)))`; список Jira 8.13 и синонимы — `CODE_LANGUAGES`, `CODE_SYNONYMS`; запуски выше; `test_code_block_language_is_one_jira_knows` |
-| Проба 2: комментарий перехода теряется | RESOLVED | `jira.py:687` `inline = comment is not None and "comment" in (transition.get("fields") or {})`; иначе `_add_comment` после перехода; три теста `test_transition_*comment*` |
+| Проба 2: комментарий перехода теряется | RESOLVED | `jira.py:691` `inline = comment is not None and "comment" in (transition.get("fields") or {})`; иначе `_add_comment` после перехода; три теста `test_transition_*comment*` |
 | Проба 3: метка красная | RESOLVED | `jira.py:490` `label = "\\[LADO: %s\\]" % agent`; тесты, например `tests/test_jira.py:338` |
 | Проба 4: ложная фраза SKILL.md | RESOLVED | `grep -n "ends the list" skills/tracker/SKILL.md` ничего не находит |
 | `kit.yaml` 1.0.2 | RESOLVED | `kit.yaml:2` `version: 1.0.2` |
+| F5.6 [medium] комментарий теряется, если задача уже в целевом статусе (визит 1, «Missed earlier») | RESOLVED | `jira.py:664` `there += ", comment %s added" % _add_comment(jira, args.key, comment)`; `test_transition_already_there_still_posts_the_comment`; BLUEPRINT.md:31 «on a task already in the target status it is posted» |
 
 Build-report сверен с файлами: совпадает. Раздел «Cut text: None» верен в том смысле,
 что ни одно правило не сокращено. Единственное удалённое правило удалено по плану
@@ -210,29 +216,18 @@ Build-report сверен с файлами: совпадает. Раздел «
 | SKILL.md:68 «fenced code blocks (with their language)» | SKILL.md:68-69, уточнено: «a language Jira lacks becomes plain code» |
 | SKILL.md:73-74 «A code block inside a numbered list ends the list in Jira, so the numbering after it starts again at 1.» | Удалено по плану (проба 4: фраза ложная) |
 | `jira.py` `{code}` для блока без языка | `{code:none}` (F5.1, по плану) |
-| `jira.py` `update.comment` при любом `--comment` | `jira.py:687-689`, только при поле `comment`; иначе — `_add_comment` |
+| `jira.py` `update.comment` при любом `--comment` | `jira.py:691-693`, только при поле `comment`; иначе — `_add_comment` |
 | `jira.py` тело `cmd_comment` | `_add_comment`, вызывается там же |
-| BLUEPRINT R12 «(with their language)», раздел 4 «(1.0.1)» | R12 уточнён (BLUEPRINT.md:91-93), раздел 4 — «(1.0.2)» |
+| BLUEPRINT R12 «(with their language)», раздел 4 «(1.0.1)» | R12 уточнён (BLUEPRINT.md:92-94), раздел 4 — «(1.0.2)» |
+| Визит 2: `jira.py` `print("%s is already in %s" …)` | `jira.py:661-665`, та же строка плюс комментарий при `--comment` (F5.6) |
+| Визит 2: BLUEPRINT R3 «Jira silently drops it otherwise), comment» и строка журнала 1.0.2 | Те же места, дополнены F5.6 (BLUEPRINT.md:31-32, строка журнала 1.0.2) |
 
 Правил не потеряно.
 
 ## Missed earlier
 
-- **F5.6** [medium] `skills/tracker/jira.py:660` (`cmd_transition`)
-  > `    if not match and current.lower() == status.lower():`
-  Если задача уже в целевом статусе, скрипт печатает «KEY is already in <status>» и
-  выходит с кодом 0. Текст `--comment` при этом не читается и не отправляется. Это та же
-  потеря комментария, что и в пробе 2: агент считает, что написал в задачу, а там пусто.
-  Строки не менялись с 0.1.0, поэтому находка не вызвана этим изменением.
-  Подтверждено запуском на заглушке (задача в Done, `transition T-1 Done --comment note`):
-  ```
-  T-1 is already in Done
-  exit 0
-  [('GET', 'issue/T-1'), ('GET', 'issue/T-1/transitions')]
-  ```
-  Fix: в этой ветке при `--comment` отправить комментарий через `_add_comment` и
-  напечатать «KEY is already in <status>, comment <id> added»; добавить тест.
-  Passes: full pass, confirmed
+Нет. F5.6 из визита 1 закрыт (RESOLVED, см. «Previous findings»). Полный проход визита 2
+по `cmd_transition` новых находок не дал.
 
 ## Left by the plan
 
@@ -241,10 +236,7 @@ Build-report сверен с файлами: совпадает. Раздел «
 
 ## Questions for the human
 
-1. Исправить F5.6 сейчас, в 1.0.2, или в следующей версии? Рекомендую сейчас. Это та же
-   потеря комментария, которую 1.0.2 чинит. Исправление — около пяти строк и тест, без
-   изменений в SKILL.md. Если выпускать без него, при повторной пробе пункта 2 не
-   переводите задачу в статус, где она уже стоит.
+Нет. Вопрос визита 1 о F5.6 человек решил на гейте: «исправить F5.6 и сразу проверить».
 
 ## Found on the way
 
