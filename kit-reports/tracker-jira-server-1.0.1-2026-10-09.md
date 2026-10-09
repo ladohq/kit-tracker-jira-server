@@ -2,25 +2,23 @@
 
 - Дата: 2026-10-09
 - Кит: `.` (worktree запуска `improve/tracker-jira-server-markdown`), путь задан
-- Коммит: 16909d7 (`kit.yaml` `version: 1.0.1`)
+- Коммит: a0b8837 (`kit.yaml` `version: 1.0.1`)
 - Оценил: критик kit-builder (слои a и b)
-- Режим: повторная оценка относительно `kit-reports/tracker-jira-server-1.0.0-2026-10-08.md`
-  (артефакт `assessment`), база — 1240f8d (её называет план),
-  `git diff 1240f8d -- kit.yaml README.md BLUEPRINT.md agents flows skills`: 5 файлов,
-  137 строк добавлено, 43 удалено. Первый визит `evaluate`.
-- Проходы: изменение небольшое (конвертер около 90 строк в `jira.py`, раздел SKILL.md,
-  R12 в BLUEPRINT), три прохода я сделал сам, без субагентов, каждый по всем 12 критериям
-  и известным дырам. Проход 1: `jira.py` (`to_wiki`, `_wiki`, `_inline`, `text_arg`,
-  argparse) с запусками конвертера на 24 входах (вывод ниже, в находках). Проход 2:
-  SKILL.md и README против поведения скрипта. Проход 3: BLUEPRINT R7, R12, разделы 3–5
-  против файлов и плана. Затем полный проход по всем пяти файлам, которых касается дифф
-  (Re-evaluation 5): новых находок он не дал. Однопроходных находок отброшено: 1 (строки
-  продолжения пункта списка без отступа — поведение Jira здесь я подтвердить не могу);
-  оставлено как подтверждённые: 0.
-- Оговорка: вред в F5.1, F5.2, F5.3 и F5.5 — это то, как Jira Server 8.13 показывает
-  получившуюся wiki-разметку. Вывод конвертера подтверждён запусками; поведение Jira я
-  знаю, но здесь не проверял: его стоит проверить на тестовой Jira 8.13.19 (R10) до
-  выпуска.
+- Режим: повторная оценка относительно версии 1d512d7/66a3ecf этого отчёта (коммит
+  16909d7), база — 16909d7 (её называет план),
+  `git diff 16909d7 -- kit.yaml README.md BLUEPRINT.md agents flows skills`: 3 файла
+  (`jira.py`, `SKILL.md`, `BLUEPRINT.md`). Второй визит `evaluate`. Предыдущая версия
+  (визит 1, 16909d7 против 1240f8d): `approved`, 5 находок (0 high, 2 medium, 3 low).
+- Проходы (этот визит): изменение — около 50 строк. Три прохода я сделал сам, без
+  субагентов. Проход 1: `jira.py` (`held`, `_same_list`, `_item`, `CODE_ESCAPE`, `LINK`)
+  с запусками конвертера на 13 входах. Проход 2: две новые фразы SKILL.md против
+  поведения скрипта. Проход 3: строка 1.0.1 журнала BLUEPRINT против плана и файлов.
+  Затем полный проход по всем трём файлам, которых касается дифф (Re-evaluation 5): новых
+  находок нет. Однопроходных находок отброшено: 0; оставлено как подтверждённые: 0.
+  Проходы визита 1 описаны в версии 1d512d7.
+- Оговорка: вывод конвертера подтверждён запусками. Как Jira Server 8.13 его покажет, я не
+  проверял: это проверка на тестовой Jira 8.13.19 (R10). В неё входят F5.1, а также `\-`,
+  `\|`, `\_` внутри `{{…}}` (F5.3).
 
 Находки — кандидаты для человека, а не оценка «прошёл/не прошёл».
 
@@ -31,9 +29,9 @@
 | a. `lado kits check` | OK; 0 предупреждений |
 | a. Бюджет | green; нет жёлтых и красных мер |
 | a. Потоки | 0 нарисовано (у кита нет потоков, R2); скелетов в BLUEPRINT.md нет |
-| b. Рубрика | 5 находок (0 high, 2 medium, 3 low); 11 из 12 критериев без находок |
-| Охват | повторная оценка изменённого текста, с полным проходом по 5 файлам, которых касается дифф (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); тесты: 59, OK |
-| Правило остановки | не выполнено: 0 high, 2 medium (F5.1, F5.2) — совет для гейта выпуска, не блок |
+| b. Рубрика | 1 открытая находка (0 high, 1 medium — F5.1, оставлена планом, 0 low); F5.2–F5.5 RESOLVED; новых находок нет; 11 из 12 критериев без находок |
+| Охват | повторная оценка изменённого текста, с полным проходом по 3 файлам, которых касается дифф (skills/tracker/jira.py, skills/tracker/SKILL.md, BLUEPRINT.md); тесты: 60, OK |
+| Правило остановки | выполнено: в изменённом тексте 0 high, 0 medium; F5.1 (medium) оставлен планом до пробы на тестовой Jira |
 
 Счёт относится только к тому, что названо в строке «Охват»: счёт повторной оценки и счёт
 полной оценки не сравнимы.
@@ -78,10 +76,8 @@ error: kit.yaml: states must be a non-empty mapping   (exit status 2)
 
 ## Исправить сначала
 
-1. F5.1 — язык блока кода передаётся в `{code:…}` как есть; незнакомый Jira язык даёт
-   ошибку над блоком.
-2. F5.2 — нумерованный список, разорванный пустой строкой или блоком кода, в Jira
-   начинается снова с 1.
+1. F5.1 — оставлена планом: решается по итогам пробы на тестовой Jira 8.13.19 (см.
+   «Left by the plan»).
 
 ## Находки
 
@@ -102,69 +98,39 @@ SKILL.md не меняется.
 
 ### 4. Независимая проверка
 
-Не применимо: потоков нет. Конвертер покрыт тестами `MarkdownTest` (7 тестов) и тестами
-через поддельную Jira (`--wiki`, `--field description=`); 59 тестов, OK.
+Не применимо: потоков нет. Исправления покрыты тестами:
+`test_blank_lines_inside_a_list_are_dropped` (F5.2), `test_emphasis_and_code` (F5.3),
+`test_links` (F5.4). Всего 60 тестов, OK.
 
 ### 5. Противоречия
 
-SKILL.md обещает, что форматирование сохраняется («keeps headings, … fenced code blocks
-(with their language), bullet and numbered lists»), а в двух местах вывод конвертера в
-Jira выглядит иначе.
+Открыта одна находка визита 1, её оставил план (STILL OPEN):
 
 - **F5.1** [medium] `skills/tracker/jira.py:396`
   > `            out.append("{code:%s}" % match.group(2) if match.group(2) else "{code}")`
-  Любое слово после ```` ``` ```` уходит в `{code:<слово>}`. В Jira Server 8.x у `{code}`
-  фиксированный список языков (bash, c, c++, css, go, java, javascript, json, python,
-  sh, sql, xml, yaml и ещё несколько). Для языка вне списка Jira показывает над блоком
-  ошибку «Unable to find source-code formatter for language: …». Агенты часто пишут
-  ```` ```text ````, ```` ```console ````, ```` ```diff ````, ```` ```typescript ````.
-  Запуск: `to_wiki("```text\nhello\n```\n")` → `'{code:text}\nhello\n{code}\n'`;
-  ```` ```console ```` → `{code:console}`, ```` ```diff ```` → `{code:diff}`.
-  SKILL.md:68 «fenced code blocks (with their language)» обещает, что это работает.
-  Fix: держать в `jira.py` короткий список языков, которые знает Jira 8.13 (и пару
-  синонимов: `shell`/`zsh`/`console` → `bash`, `ts`/`typescript` → `javascript`), а
-  остальные отправлять как `{code}` без языка; проверить список на тестовой Jira 8.13.19.
-  Passes: 3/3
+  Любое слово после ```` ``` ```` уходит в `{code:<слово>}`. Для языка вне списка Jira
+  8.x над блоком появляется «Unable to find source-code formatter for language: …», а
+  SKILL.md:68 обещает «fenced code blocks (with their language)».
+  Fix: короткий список языков Jira 8.13 с синонимами, остальное — `{code}`; список
+  проверить на тестовой Jira 8.13.19. Passes: 3/3 (визит 1)
 
-- **F5.2** [medium] `skills/tracker/jira.py:411`
-  > `        if line.strip():`
-  Пустая строка внутри списка проходит в вывод как есть, а блок кода внутри пункта
-  закрывает список (`lists = []` у ограждения). В wiki-разметке Jira пустая строка или
-  блок кода заканчивают список, поэтому следующий пункт `#` начинает новый список с 1.
-  «Рыхлые» списки и шаги с командой внутри агенты пишут часто.
-  Запуски: `to_wiki("1. one\n\n2. two\n")` → `'# one\n\n# two\n'` (в Jira «1. one»,
-  «1. two»); `to_wiki("1. run:\n   ```bash\n   ls\n   ```\n2. done")` →
-  `'# run:\n{code:bash}\n   ls\n{code}\n# done'`.
-  Fix: убирать пустые строки между пунктами одного списка (пустая строка, после которой
-  снова идёт пункт списка); про блок кода внутри пункта нумерованного списка сказать
-  одной фразой в SKILL.md («a code block ends a numbered list in Jira») или отправлять
-  такой блок как `{code}` без выхода из списка, если тестовая Jira это показывает.
-  Passes: 3/3
+Исправления визита 1 проверены запусками:
 
-- **F5.3** [low] `skills/tracker/jira.py:372`
-  > `    text = CODE_SPAN.sub(lambda m: keep("{{%s}}" % m.group(2).strip()), text)`
-  Внутри кода конвертер разметку не читает, но Jira читает её внутри `{{…}}`: `*`, `_`,
-  `-` всё ещё работают, а `{` или `}` рядом со скобками ломают моноширинный текст.
-  Запуск: ``to_wiki("run `**/*.py` and `{x}`")`` → `'run {{**/*.py}} and {{{x}}}'`.
-  Fix: экранировать обратной косой чертой символы wiki (`*_-+^~{}[]|`) в содержимом
-  `{{…}}`. Passes: 2/3
+```
+'1. one\n\n2. two\n'                      -> '# one\n# two\n'
+'1. a\n\n   - b\n\n2. c'                  -> '# a\n#* b\n# c'
+'- e\n\n1. f'                             -> '* e\n\n# f'
+'1. a\n\nPara\n\n2. b'                    -> '# a\n\nPara\n\n# b'
+'- a\n\n\n- b\n'                          -> '* a\n* b\n'
+'1. a\n\n'                                -> '# a\n\n'
+'- a\n\n```\ncode\n```'                   -> '* a\n\n{code}\ncode\n{code}'
+'use `--force` and `a|b` and `x_y`'       -> 'use {{\-\-force}} and {{a\|b}} and {{x\_y}}'
+'![alt](http://x/y.png) and [t](http://u)' -> '![alt](http://x/y.png) and [t|http://u]'
+```
 
-- **F5.4** [low] `skills/tracker/jira.py:357`
-  > `LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")`
-  Изображение Markdown попадает под шаблон ссылки, и от него остаётся `!`.
-  Запуск: `to_wiki("![alt](http://x/y.png)")` → `'![alt|http://x/y.png]'`. А
-  SKILL.md:69-70 говорит «Anything else / is sent as it is».
-  Fix: `(?<!!)` перед `\[` в `LINK`, тогда изображение пройдёт как есть. Passes: 2/3
-
-- **F5.5** [low] `skills/tracker/jira.py:417`
-  > `            out.append(_inline(line))`
-  Строки абзаца, перенесённые по ширине (в Markdown это один абзац), идут в Jira каждая
-  отдельно, а Jira показывает каждый перевод строки как разрыв строки. Если агент
-  переносит строки на 80–90 символах, текст в Jira выходит рваным.
-  Запуск: `to_wiki("This is a long line\nthat continues here.")` → без изменений.
-  Fix: в SKILL.md одна фраза — «write each paragraph on one line: Jira keeps line
-  breaks», а не склейка строк в конвертере (так дешевле и безопаснее для кода и таблиц).
-  Passes: 2/3
+Новых противоречий нет. Новая фраза SKILL.md:73-74 («A code block inside a numbered list
+ends the list in Jira») совпадает с поведением конвертера: `'1. run:\n   ```bash\n   ls\n
+```\n2. done'` → `'# run:\n{code:bash}\n   ls\n{code}\n# done'`.
 
 ### 6. Дублирование
 
@@ -182,8 +148,9 @@ Jira выглядит иначе.
 
 ### 9. Краткость и «почему»
 
-Новый раздел SKILL.md:65-74 занимает 8 строк вместо 25 (SKILL.md: 1248 → 1210 слов).
-Неочевидное правило дано с причиной: «so wiki markup in plain text still works».
+Раздел SKILL.md:65-76 — 10 строк вместо 25 в 1.0.0 (SKILL.md: 1248 → 1242 слова). Обе
+новые фразы этого визита несут причину: «Jira shows every line break», «so the numbering
+after it starts again at 1».
 
 ### 10. Описания навыков
 
@@ -218,45 +185,39 @@ Jira выглядит иначе.
 
 ## Previous findings
 
-Отчёт 1.0.0 (1240f8d) находок не имел. Изменения плана:
+Версия 1d512d7/66a3ecf этого отчёта (16909d7):
 
-| Пункт плана | Статус | Доказательство |
+| Находка | Статус | Доказательство |
 |---|---|---|
-| Конвертер стандартной библиотеки, подмножество | RESOLVED | `jira.py` `to_wiki`, `_wiki`, `_inline`; запуски выше; `test_headings`, `test_emphasis_and_code`, `test_links`, `test_lists_nest_by_indent` |
-| До `mark()` | RESOLVED | `jira.py:643` `comment = mark(text_arg(args.comment, args.wiki))`, `:653` |
-| Символы wiki не экранируются | RESOLVED | запуск: `ping [~jdoe] about KEY-1 [t\|http://x]` без изменений; `test_wiki_characters_and_the_rest_pass_as_they_are` |
-| Сбой → исходный текст | RESOLVED | `to_wiki`: `except Exception: return text`; `test_failure_sends_the_original_text` |
-| `--wiki` у трёх команд | RESOLVED | `jira.py:693`, `:707`, `:716` |
-| `--field description=` не конвертируется | RESOLVED | `jira.py:554` конвертирует только `args.description`; тест через поддельную Jira |
-| `get` без изменений | RESOLVED | `cmd_get` вне диффа |
-| Подсказки argparse | RESOLVED | `jira.py:692` «Markdown; '-' reads it from stdin», `:706`, `:715` |
-| SKILL.md: раздел, пример, строки таблицы | RESOLVED | SKILL.md:65 «## Writing in Jira: Markdown»; :61 `**Done:**`; :35, :37, :38 `[--wiki]` |
-| Тесты | RESOLVED | 59 тестов, OK |
-| `kit.yaml` 1.0.1, README | RESOLVED | `version: 1.0.1`; README.md:71-72 |
-| BLUEPRINT: R12, R7, разделы 3–5 | RESOLVED | R7 «Text goes to Jira as wiki markup (R12).»; R12; строки раздела 3 и обратная проверка; раздел 4 «(1.0.1)»; журнал 2026-10-09 |
+| F5.1 [medium] язык блока кода | STILL OPEN, оставлена планом | `jira.py:396` не менялся; план «Leave: F5.1 … decided from that trial» |
+| F5.2 [medium] пустая строка / блок кода рвут нумерованный список | RESOLVED | `jira.py:412` `if lists and not line.strip():` (пустые строки придерживаются в `held`, `_same_list`); запуск `'1. one\n\n2. two\n'` → `'# one\n# two\n'`; блок кода — SKILL.md:73-74 «A code block inside a / numbered list ends the list in Jira»; `test_blank_lines_inside_a_list_are_dropped` |
+| F5.3 [low] разметка внутри `{{…}}` | RESOLVED | `jira.py:362` `CODE_ESCAPE = re.compile(r"([*_\-+^~{}\[\]|])")`; запуск `` `--force` `` → `{{\-\-force}}`; `test_emphasis_and_code` |
+| F5.4 [low] изображение → `![alt\|url]` | RESOLVED | `jira.py:357` `(?<!!)`; запуск без изменений; `test_links` |
+| F5.5 [low] строки абзаца, перенесённые по ширине | RESOLVED | SKILL.md:73 «Write each paragraph on one line: Jira shows every line break.» |
 
-Список build-report сверен с файлами: совпадает.
+Отчёт 1.0.0 (1240f8d, `assessment`) находок не имел; пункты плана визита 1 — RESOLVED
+(таблица в версии 1d512d7). Build-report сверен с файлами: совпадает.
 
 ## Cut rules
 
-| Удалённое правило (файл:строка в базе) | Где теперь |
+| Удалённое правило (файл:строка в базе 16909d7) | Где теперь |
 |---|---|
-| SKILL.md:65-89 таблица wiki-разметки (заголовки, выделение, `{code}`, цитата, панель, списки, упоминание, таблица, ссылка) | Заменена по плану (R12): агент пишет Markdown, подмножество — SKILL.md:67-69; упоминание — :70; панели и `{noformat}` — `--wiki`, :71-72 |
-| SKILL.md:79 «`{noformat}` for logs» | Логи — блок ```` ``` ```` (→ `{code}`); `{noformat}` — через `--wiki`, SKILL.md:71 |
-| SKILL.md:89 «inside `{code}` and `{noformat}` nothing is markup» | В конвертере: содержимое блока не трогается (`test_code_block_content_is_untouched`) |
-| SKILL.md:89 «A blank line separates paragraphs» | Так же и в Markdown; правило не нужно |
-| BLUEPRINT.md:60-63 R7 «SKILL.md teaches Jira wiki markup … the script converts nothing» | Заменено решением человека: R12 и R7 «Text goes to Jira as wiki markup (R12)» |
+| `jira.py:357` `LINK` без `(?<!!)` | Тот же шаблон, сужен (F5.4) |
+| `jira.py:372` `{{%s}}` без экранирования | `jira.py` с `CODE_ESCAPE` (F5.3) |
+| `jira.py:401-402` вычисление `indent`, `kind` | `_item()`, вызывается там же |
+| BLUEPRINT.md, строка журнала 1.0.1 | Та же строка, дополнена исправлениями и ответом на гейте |
 
-Правил не потеряно. Синтаксис панели после `--wiki` агент берёт из своих знаний: так решил
-план («SKILL.md says "write Markdown"»).
+Правил не потеряно. Удалённая строка комментария `_inline` дополнена, а не сокращена.
 
 ## Missed earlier
 
-Нет: полный проход по пяти файлам новых находок вне изменённого текста не дал.
+Нет: полный проход по трём файлам новых находок вне изменённого текста не дал.
 
 ## Left by the plan
 
-Нет: план «Leave: none».
+- F5.1 [medium] — языки блоков кода. Причина плана: «the human wants to fix F5.2–F5.5
+  first and then test; which languages Jira 8.13 accepts is checked on the test Jira
+  8.13.19, and F5.1 is decided from that trial».
 
 ## Questions for the human
 
