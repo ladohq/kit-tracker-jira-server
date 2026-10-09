@@ -2,33 +2,31 @@
 
 - Дата: 2026-10-09
 - Кит: `.` (worktree запуска `improve/tracker-jira-server-whoami`), путь задан
-- Коммит: 8aeda44 (`kit.yaml` `version: 1.2.0`). Визит 1 оценивал 65946fd (отчёт d6590ef).
+- Коммит: 0a71e86 (`kit.yaml` `version: 1.2.0`). Визит 2 оценивал 8aeda44 (отчёт cf31728),
+  визит 1 — 65946fd (отчёт d6590ef).
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md`
   (полная оценка, b3e0aec). База — b3e0aec, её называет план. Дифф
   `git diff b3e0aec -- kit.yaml README.md BLUEPRINT.md agents flows skills` затрагивает
   5 файлов: BLUEPRINT.md, README.md, kit.yaml, skills/tracker/SKILL.md,
   skills/tracker/jira.py.
-- Визит 2 шага `evaluate`, после отклонения на гейте выпуска. С визита 1 (65946fd → 8aeda44)
-  изменились:
-  - `jira.py`: совет после сбоя комментария, проверка держателя по `name` или `key`,
-    снятие исполнителя при 404;
-  - SKILL.md: показ аккаунтов и строки не от `jira.py`;
-  - BLUEPRINT: строка решения триажа 2026-10-08;
-  - `.gitignore`, `.pyc` убран из индекса;
+- Визит 3 шага `evaluate`, после второго отклонения на гейте выпуска («исправить F5.5,
+  F3.3, F3.4»). С визита 2 (8aeda44 → 0a71e86) изменились:
+  - SKILL.md: трассировка Python отделена от сообщений uv;
+  - `jira.py`: 404 при снятии исполнителя — код 7; совет «fix the text the line names»;
+  - BLUEPRINT: R8 и строка журнала 1.2.0;
   - тесты: 88.
-- Проходы визита 2. Изменение — около 30 строк, три прохода я сделал сам, по 12 критериям
+- Проходы визита 3. Изменение — около 30 строк, три прохода я сделал сам, по 12 критериям
   и известным дырам:
-  1. ветки совета в `cmd_transition` против таблицы кодов SKILL.md и R8;
-  2. новые абзацы SKILL.md против кода (`_person`, `main`);
-  3. `cmd_assign` и правка BLUEPRINT против R3 и решения на гейте.
+  1. абзац SKILL.md «When the script fails» против `main` и таблицы кодов;
+  2. `cmd_assign` и `cmd_transition` против таблицы кодов;
+  3. R8 и журнал против кода.
 
   Новых находок эти проходы не дали. Затем был полный проход (Re-evaluation 5) по всем
-  пяти файлам целиком. Его сделал отдельный субагент без `kit-reports/` и без переменных
-  `JIRA_*`, пробы шли против фейковой Jira. Он дал 3 находки и одну строку для «Not
-  traced», все в тексте 8aeda44. Каждую я подтвердил по файлам («full pass, confirmed»).
-  Однопроходных находок отброшено: 0.
-- Проходы визита 1: см. историю этого файла в git (d6590ef).
+  пяти файлам целиком. Его сделал отдельный субагент без `kit-reports/` и без `JIRA_*`,
+  только против фейковой Jira. Он дал 2 находки low (F3.5, F6.1), обе я подтвердил по
+  файлам. Однопроходных находок отброшено: 0.
+- Проходы визитов 1–2: см. историю этого файла в git (d6590ef, cf31728).
 
 Находки — кандидаты для человека, а не оценка «прошёл/не прошёл».
 
@@ -39,9 +37,9 @@
 | a. `lado kits check` | OK; 0 предупреждений; `expects commands: uv` |
 | a. Бюджет | green; нет жёлтых и красных мер |
 | a. Потоки | 0 нарисовано: потоков нет (R2), скелетов в BLUEPRINT.md нет |
-| b. Рубрика | 3 открытые находки (0 high, 1 medium, 2 low); все 7 находок визита 1 RESOLVED; 10 из 12 критериев без находок |
+| b. Рубрика | 2 открытые находки (0 high, 0 medium, 2 low); все 3 находки визита 2 RESOLVED; 10 из 12 критериев без находок |
 | Охват | повторная оценка изменённого текста и полный проход по 5 файлам, которых касается дифф (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); тесты: 88, OK |
-| Правило остановки | не выполнено: 0 high, 1 medium (F5.5). Это совет к гейту выпуска, а не блокировка |
+| Правило остановки | выполнено: 0 high, 0 medium в изменённом тексте |
 
 Счёт относится только к тому, что названо в строке «Охват»: счёт повторной оценки и счёт
 полной оценки не сравнимы.
@@ -91,14 +89,16 @@ error: kit.yaml: states must be a non-empty mapping   (exit status 2)
 
 ## Исправить сначала
 
-1. SKILL.md:123-124: «nothing reached Jira» — только для сообщений uv и «can't open
-   file». Трассировка Python — это падение скрипта (код 1, строка 1 таблицы): запись
-   могла пройти (F5.5).
+Блокирующих и средних находок нет. По желанию, обе по одной строке:
+
+1. R8: «(4, 5, 6, 7, 10, 429)», как в журнале и коде (F6.1).
+2. Строка 7 таблицы: после `assign … none` ключ верен, сообщить, а не проверять ключ
+   (F3.5).
 
 ## Находки
 
-Нумерация продолжает визит 1: F3.1, F3.2, F5.1–F5.4 и F12.1 закрыты (см. «Previous
-findings»). Новые находки — F3.3, F3.4, F5.5.
+Нумерация продолжает визиты 1–2; их находки закрыты (см. «Previous findings»). Новые —
+F3.5 и F6.1.
 
 ### 1. Границы ролей
 
@@ -111,65 +111,46 @@ findings»). Новые находки — F3.3, F3.4, F5.5.
 
 ### 3. Готовность и исходы
 
-- **F3.3** [low] `skills/tracker/jira.py:822`
-  > if failure.status != 404 else "404"))
-  Снятие исполнителя с ответом 404 теперь печатает «Jira refused to unassign T-1: 404»
-  с кодом 11 и теряет причину: задачи нет или она не видна. Строка 11 велит «fix the
-  request once», но чинить нечего, и агент тратит попытку.
-  Fix: «Jira refused to unassign %s: the task is gone or not visible to you (404)», или
-  оставить `failure.message` (`missing_issue`) с кодом 7.
-  Passes: full pass, confirmed — `jira.py:819` `if failure.code in (NOT_FOUND, REFUSED):`
-  переводит 404 (NOT_FOUND) в REFUSED с текстом «404». Это ответ на F3.2 визита 1: ложное
-  «check the key» ушло, но причину сообщение теперь не называет.
-
-- **F3.4** [low] `skills/tracker/jira.py:753`
-  > advice = "send the comment with comment"
-  Если Jira отвергла сам комментарий (код 11, например «comment (too long)»), совет —
-  отправить его снова как есть. Тот же текст упадёт ещё раз. Комментарий в коде
-  (`jira.py:742-743`, «only a refused comment is fixed and sent again at once») говорит
-  «fix», а сообщение — нет.
-  Fix: «fix the text the line names, then send the comment with comment».
-  Passes: full pass, confirmed. Проба: `… the comment was not added (do not run the transition again; send the comment with comment): Jira refused the values: comment (too long)`.
-  Совет был тем же и в 1.1.0, но ветка переписана в 8aeda44, поэтому находка здесь.
+- **F3.5** [low] `skills/tracker/SKILL.md:141`
+  > | 7 | task or project not found | check the key; report it if the key came from someone else |
+  С 0a71e86 сюда попадает и 404 при снятии исполнителя. Но GET перед этим только что нашёл
+  задачу, так что ключ верен и «check the key» — лишний шаг. Если ключ агент получил в
+  своём же шаге, строка не велит и сообщить. Тест показывает, что автор хотел обратного:
+  `tests/test_jira.py:828` `self.assertNotIn("check the key", err)`.
+  Fix: в строку 7 дописать «(after `assign … none`: the key was found a moment before;
+  report it)».
+  Passes: full pass, confirmed — `jira.py:820`
+  `raise Failure(NOT_FOUND, "Jira refused to unassign %s: the task is gone or "`. Сама
+  строка таблицы не менялась, в неё ведёт правка F3.3.
 
 ### 4. Независимая проверка
 
 Не применимо: потоков нет. 88 тестов, OK. Пробы на тестовой Jira для 1.2.0 ещё не было
-(вопрос 2).
+(вопрос 1).
 
 ### 5. Противоречия
 
-- **F5.5** [medium] `skills/tracker/SKILL.md:124`
-  > nothing reached Jira: if it says it cannot open `jira.py`, fix the path (see above);
-  Абзац относит к uv или Python каждое сообщение, которое не начинается с `jira.py`, и
-  говорит, что в Jira ничего не ушло. Но падение самого скрипта печатает трассировку
-  Python («Traceback …»), а она тоже не начинается с `jira.py`. `main` ловит только
-  `Failure` (`jira.py:963` `except Failure as failure:`). Падение может случиться после
-  записи. Тогда этот абзац спорит со строкой 1 таблицы и со SKILL.md:147
-  («after exit 1 or a 5xx exit 12 … `get` or `search` before running it again»). Агент
-  может повторить `create` или `comment` без проверки и сделать дубль.
-  Fix: «a Python traceback is the script crashing: exit 1, a write may have been applied
-  (see row 1)»; «nothing reached Jira» оставить только для сообщений uv и «can't open
-  file».
-  Passes: full pass, confirmed. Проба на фейковой Jira: `POST issue` ответил 201 с телом
-  `[]`, скрипт вышел с кодом 1 и трассировкой
-  `AttributeError: 'list' object has no attribute 'get'`; запрос `POST /rest/api/2/issue`
-  записан. Формулировку «nothing reached Jira» предложил мой Fix к F3.1 визита 1. Ошибка
-  в моём совете, а не в исполнении.
-
-Показ аккаунтов (SKILL.md:64-67) совпадает с кодом: «or the login alone when Jira has no
-other name», «Reporters and comment authors show only their name».
+Абзац «When the script fails» (SKILL.md:122-127) отделяет трассировку («A Python traceback
+(`Traceback …`) is the script crashing: exit 1, and a write may have been applied») от
+сообщений uv и Python до запуска скрипта. Полный проход проверил это пробами: путь, которого
+нет, — `can't open file`, код 2; падение — `Traceback …`, код 1. Совет при отвергнутом
+комментарии (`jira.py:753`) согласован со строкой 11. Нарушения нет.
 
 ### 6. Дублирование
 
-Правило assign стоит в SKILL.md:68-71 и в строке 11. Его требует R8, копии совпадают.
-Нарушения нет.
+- **F6.1** [low] `BLUEPRINT.md:118`
+  > other failure (5, 6, 7, 10, 429), report it and send the comment only when told to.
+  В списке R8 нет кода 4, а в строке журнала 1.2.0 он есть («report first after 4, 5, 6,
+  7, 10 and 429», BLUEPRINT.md:247). Код тоже включает его: ветка `else` в
+  `jira.py:754-755` ловит и код 4. Две копии одного правила уже расходятся.
+  Fix: в R8 «(4, 5, 6, 7, 10, 429)».
+  Passes: full pass, confirmed — grep обеих строк.
+
+Правило assign в SKILL.md:68-71 и в строке 11 требует R8, копии совпадают.
 
 ### 7. Когда звать человека
 
-После сбоя комментария при кодах 4, 5, 6, 7, 10 и 429 совет — «report it; send the comment
-with comment once you are told to» (`jira.py:755`). При коде 5 он согласован с остановкой
-всех агентов. Нарушения нет.
+Без изменений: SKILL.md:128-131; при коде 5 скрипт велит остановить всех агентов.
 
 ### 8. Циклы на повторном визите
 
@@ -177,29 +158,27 @@ with comment once you are told to» (`jira.py:755`). При коде 5 он со
 
 ### 9. Краткость и «почему»
 
-Новые ветки объяснены комментарием `jira.py:742-743`. Нарушения нет (о расхождении
-комментария с сообщением см. F3.4).
+Новые фразы несут причину: «a write may have been applied», «nothing reached Jira».
+Нарушения нет.
 
 ### 10. Описания навыков
 
-Без изменений с визита 1: описание называет `whoami` по смыслу; `uv` в `expects.commands`.
+Без изменений: описание называет `whoami` по смыслу; `uv` в `expects.commands`.
 
 ### 11. Нейтральность к провайдеру
 
-Без изменений: `${SKILL_DIR}` с запасным путём, `uv` не привязан к CLI.
+Без изменений: `${SKILL_DIR}` с запасным путём; абсолютных путей нет.
 
 ### 12. Безопасность и границы
 
-Проверка держателя читает `name` или `key` (`jira.py:800`), так что задача, у исполнителя
-которой есть только `key`, считается чужой и без `--reassign` не берётся. Крайний случай:
-своя задача, известная только по `key`, тоже будет отвергнута. Это безопасная сторона, и
-Jira Server всегда присылает `name`, поэтому не находка.
+Без изменений с визита 2: чужую задачу без `--reassign` не взять; http только на
+localhost; TLS не отключается.
 
 ## Known holes
 
 | Known hole | Находка, или как кит это решает |
 |---|---|
-| 1. Red check sent back with no environment cause considered | Не применимо: потоков нет. Сообщения uv отделены от ошибок скрипта; трассировку Python правило относит к окружению — F5.5. |
+| 1. Red check sent back with no environment cause considered | Не применимо: потоков нет. Сообщения uv и Python до запуска (ничего не ушло в Jira) отделены от падения скрипта (SKILL.md:122-127). |
 | 2. Work outside a flow, merge without a gate | Git-работы нет. Чужую задачу можно забрать только с `--reassign` по слову человека или шага (SKILL.md:71). |
 | 3. Path outside the run's worktree | `${SKILL_DIR}`; `.lado/tracker.yaml` ищется до первого `.git`. |
 | 4. Verdict without a severity threshold | Не применимо: рецензента нет. |
@@ -208,51 +187,41 @@ Jira Server всегда присылает `name`, поэтому не нахо
 
 ## Not traced
 
-- Журнал 1.2.0 (BLUEPRINT.md:239) и R8 (BLUEPRINT.md:113-116) не записывают правки
-  8aeda44:
-  > advice after a failed comment keeps the rules of 9 and 429 (F5.3)
+Ничего:
+- правки 8aeda44 и 0a71e86 записаны в R8 (BLUEPRINT.md:104-131) и в строке журнала 1.2.0
+  со ссылками на d6590ef, cf31728 и решение на гейте;
+- `uv` — «command (expects)»;
+- бюджет green, раздел 4 совпадает с выводом скрипта;
+- потоков и скелетов нет (R2).
 
-  Не записаны: «сначала сообщить» после кодов 4, 5, 6, 7 и 10; 404 при снятии
-  исполнителя; держатель по `name` или `key`; правило о сообщениях uv и Python.
-  Совет: дописать их в строку 1.2.0 со ссылкой на отчёт d6590ef и расширить фразу R8.
-- В остальном всё прослежено, как на визите 1: `uv` — «command (expects)», R3/R5/R8/R9
-  описывают новое поведение. Строка решения триажа теперь называет исключение для assign
-  (BLUEPRINT.md:166-167).
+Одна неточность R8 — F6.1.
 
 ## Previous findings
 
-Находки визита 1 (d6590ef). Находки полной оценки b3e0aec закрыты на визите 1 и с тех пор
-не менялись.
+Находки визита 2 (cf31728). Находки визита 1 и полной оценки b3e0aec закрыты раньше и с
+тех пор не менялись.
 
 | Находка | Статус | Доказательство |
 |---|---|---|
-| F5.1 [medium] совет «send the comment» при 5/6/7/10 | RESOLVED | `jira.py:753-755`: «send the comment with comment» только при `failure.code == REFUSED`, иначе «report it; send the comment with comment once you are told to». Проба полного прохода: 401, 403, 404, 429 → «report it first». Остаток при коде 11 — F3.4 |
-| F5.2 [medium] «an account as Name (login)» | RESOLVED | SKILL.md:64 «**get** and **search** show the assignee, and **whoami** your account, as»; «Reporters and comment authors show only their name» |
-| F3.1 [medium] строка не от `jira.py` | RESOLVED | SKILL.md:123-126: путь к `jira.py`, «its exit 2 is not wrong arguments», «report all of it». Новое противоречие с трассировкой — F5.5 |
-| F3.2 [low] 404 при снятии → «check the key» | RESOLVED | `jira.py:819-822` → «Jira refused to unassign … 404», код 11. Потеря причины — F3.3 |
-| F5.3 [low] логин без скобок | RESOLVED | SKILL.md:65 «or the login alone when Jira has no other name» |
-| F5.4 [low] BLUEPRINT:167 «others' tasks» | RESOLVED | BLUEPRINT.md:167 «except taking another account's task in `assign` (R3,» |
-| F12.1 [low] держатель только по `name` | RESOLVED | `jira.py:800` `current = (holder or {}).get("name") or (holder or {}).get("key")` |
-| Попутно: `.pyc` в индексе | RESOLVED | `git ls-files \| grep -c pycache` → 0; `.gitignore` `__pycache__/`, `*.pyc` |
+| F5.5 [medium] трассировка как «nothing reached Jira» | RESOLVED | SKILL.md:122-124 «A Python traceback (`Traceback …`) is the script crashing: exit 1, and a write may have been applied (row 1»; «nothing reached Jira» — только для «`uv` or Python before the script ran» |
+| F3.3 [low] 404 при снятии без причины | RESOLVED | `jira.py:820` «Jira refused to unassign %s: the task is gone or not visible to you (404)», код 7. Ведёт в строку 7 — F3.5 |
+| F3.4 [low] совет без «fix» при коде 11 | RESOLVED | `jira.py:753` `advice = "fix the text the line names, then send the comment with comment"`; тест `tests/test_jira.py:512` |
+| Not traced: журнал и R8 без правок 8aeda44 | RESOLVED | BLUEPRINT R8 «after a refused comment (11), fix the text the line names»; журнал 1.2.0 «From the re-evaluations of the build: …» (код 4 в R8 — F6.1) |
 
-Список «fixed / not fixed» в build-report сверен с файлами и совпадает. Своя задача без
-`--reassign` оставлена, как решил человек на гейте.
+Список «fixed / not fixed» в build-report сверен с файлами и совпадает.
 
 ## Cut rules
 
-Удалённые строки визита 2 (`git diff --word-diff d6590ef`):
+Удалённые строки визита 3 (`git diff cf31728`):
 
-| Удалённое правило (файл:строка в d6590ef) | Где теперь |
+| Удалённое правило (файл:строка в cf31728) | Где теперь |
 |---|---|
-| SKILL.md:64 «**get**, **search**, **whoami** show an account as» | SKILL.md:64-66, сужено до исполнителя и `whoami` (F5.2) |
-| SKILL.md:122-123 «comes from `uv` … treat it as exit 1» | SKILL.md:123-126: «treat it as exit 1 and report all of it» сохранено (с F5.5) |
-| `jira.py` 429 → «report it; send the comment with comment once you are told to» | `jira.py:755`, ветка `else` (429 — SERVER_ERROR, не `unsure`) |
-| `jira.py` `check if unsure else "send the comment with comment"` | `jira.py:750-753`, разделено |
-| `jira.py` `login is None and … == REFUSED` | `jira.py:819`, расширено на NOT_FOUND |
-| BLUEPRINT «others' tasks);» | BLUEPRINT.md:167, с исключением |
+| SKILL.md:122-126 «comes from `uv` or Python … nothing reached Jira … treat it as exit 1 and report all of it» | SKILL.md:122-127: то же для сообщений до запуска скрипта («report all of it as exit 1»), трассировка отдельно |
+| `jira.py` «send the comment with comment» при коде 11 | `jira.py:753`, с «fix the text the line names» |
+| `jira.py` снятие при 404 → REFUSED «404» | `jira.py:819-821`, NOT_FOUND с причиной |
+| BLUEPRINT R8 «after 429, report it and send the comment only when told to» | BLUEPRINT.md:118 «any other failure (5, 6, 7, 10, 429)» |
 
-Правил не потеряно. Удалённые правила визита 1 — см. d6590ef, там тоже ничего не
-потеряно.
+Правил не потеряно. Удалённые правила визитов 1–2 — см. d6590ef и cf31728.
 
 ## Missed earlier
 
@@ -264,16 +233,15 @@ Jira Server всегда присылает `name`, поэтому не нахо
 
 ## Questions for the human
 
-1. F5.5 (medium) не блокирует выпуск. Исправление — одно предложение в SKILL.md:
-   трассировка Python — это код 1, запись могла пройти. Рекомендую исправить сейчас,
-   вместе с F3.3 и F3.4 (по одной строке) и строкой журнала. Без этого агент после редкого
-   падения скрипта может повторить запись и сделать дубль.
-2. Проба на тестовой Jira 8.13 (`whoami`, `/rest/api/2/myself`, отказ `assign`, запуск
-   через `uv` в сессии LADO) до выпуска — по-прежнему рекомендую.
+1. Проба на тестовой Jira 8.13 до выпуска: `whoami` (`/rest/api/2/myself`), отказ
+   `assign`, запуск через `uv` в сессии LADO. Рекомендую сделать: пробы 1.2.0 на живой
+   Jira ещё не было.
+2. F3.5 и F6.1 (low) — по одной строке. Рекомендую исправить при выпуске или в следующей
+   версии, на ваш выбор: выпуск они не блокируют.
 
 ## Found on the way
 
 - `[kit-builder]` Скрипт потоков `kit-budget` (`flow_diagram.py`) не обрабатывает кит без
   `flows/`: `error: kit.yaml: states must be a non-empty mapping` (код 2). Всё ещё открыто.
-- На визите 1 один субагент-проход сделал одно чтение `whoami` к настоящей Jira. На этом
-  визите пробы шли без `JIRA_*`, только против фейковой Jira.
+- На визите 1 один субагент-проход сделал одно чтение `whoami` к настоящей Jira. На
+  визитах 2–3 пробы шли без `JIRA_*`, только против фейковой Jira.
