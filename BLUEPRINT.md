@@ -97,9 +97,10 @@ project.
   name taken from `LADO_AGENT` (which LADO sets for each agent); without `LADO_AGENT` (the
   user runs the script by hand) there is no mark. *Source:* design round Q4.
 - **R11** One default write scope in SKILL.md: reading is always fine; create, transition,
-  comment or link only when the agent's role, its step or the human asks for it, and only
+  comment, assign, label or link only when the agent's role, its step or the human asks for it, and only
   on the tasks named. A process kit's roles and steps may allow more. *Source:* critic's
-  finding F12.1 and Question 1; the human agreed at the second design visit.
+  finding F12.1 and Question 1; the human agreed at the second design visit; assign and
+  label added with them in 1.1.0.
 - **R12** Agents write the text they send to Jira (`comment`, `create --description`,
   `transition --comment`) in Markdown; `jira.py` converts it to Jira wiki markup before
   adding the mark (R9), keeping the formatting of a minimal subset: headings, bold,
@@ -159,7 +160,7 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 |---|---|---|---|
 | `kit.yaml` | manifest | R2 | name, version, description; no `supervisor:` (the kit never leads a session) and no `dependencies.skills` |
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R6, R7, R8, R9, R11, R12 | the one skill the convention names; how to run each action, write Markdown (`--wiki` for raw wiki markup), where the settings are and their format with an example, what each exit code means and what to do; no project-specific values |
-| `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R12 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `transition`, `comment`, `link`; reads env credentials and `.lado/tracker.yaml`; converts Markdown to wiki markup; adds the mark |
+| `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R12 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `transition`, `comment`, `assign`, `label`, `link`; reads env credentials and `.lado/tracker.yaml`; converts Markdown to wiki markup; adds the mark |
 | `tests/test_jira.py` | tests (outside the skill) | R7, R8, R9, R10, R12 | the trials run on a test Jira, so the script's requests, the YAML subset, the mark and every error path are checked before it against a local fake Jira (standard library `unittest` and `http.server`); outside `skills/` so it does not ship into agents' skill folders |
 | `README.md` | doc | R2, R5, R6 | how to add the kit to a session, set the credentials and write a project's `.lado/tracker.yaml` |
 
