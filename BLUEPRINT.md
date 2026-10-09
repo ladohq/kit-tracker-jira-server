@@ -48,10 +48,13 @@ project.
   standard library only. *Source:* brief, settled 4.
 - **R5** Credentials come from the agent's environment, `JIRA_URL`, `JIRA_USER`,
   `JIRA_PASSWORD` (Basic auth on each request; the password comes from the OS keychain in
-  the user's shell profile). The kit never writes them to disk and never prints them.
+  the user's shell profile). The kit never writes them to disk and never prints the
+  password or `JIRA_URL`; the login of `JIRA_USER` appears only as an assignee in
+  `assign`'s output (Jira shows it on the task anyway).
   Personal access tokens (8.14+, sent as `Bearer`) are not supported, and the README says
   so. *Source:* brief, settled 5; Jira 8.13 section (no personal access tokens before
-  8.14); report 37181e0, F5.4.
+  8.14); report 37181e0, F5.4; the login in `assign`'s output: trial artifact
+  `trial-1.1.0`, the human at the 1.1.0 release gate ("логин вместо me").
 - **R6** A project's settings live in its repository, `.lado/tracker.yaml`, read only by
   the script, found from the current directory upward to the repository root. The script
   reads a strict YAML subset: `key: value` lines, one level of nested maps, inline
@@ -80,7 +83,10 @@ project.
   browser), Jira not reachable (connection error or timeout: "VPN?"), TLS failure
   (corporate CA hint, `SSL_CERT_FILE`, also when that file cannot be read), required fields on create or transition (named),
   `.lado/tracker.yaml` missing or invalid (path and what is wrong), rate limited (429:
-  report it, not a request to fix). SKILL.md tells the agent what to do on each exit code,
+  report it, not a request to fix). For `assign` only, a 401 without
+  `X-Authentication-Denied-Reason` is no permission (exit 6) and a 404 an unknown user
+  (exit 11), as Atlassian's REST v2 documents for that resource; an unknown login is
+  reported, never guessed. SKILL.md tells the agent what to do on each exit code,
   with one rule after "report it": wait for the answer when the step cannot go on without
   the tracker, otherwise go on. After Jira did not answer (exit 9) the agent sends Jira
   nothing more until told it answers again; the script's message says so. After a crash
@@ -90,7 +96,8 @@ project.
   until the human fixes it, so a lead without the skill learns it too. *Source:* brief,
   "Script behaviour on errors"; report 37181e0, F3.2, F5.1, F5.3, F7.1; trial artifact
   `trial-lado-session`, observation 2; report
-  `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1, F3.4.
+  `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1, F3.4;
+  report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (7bc2beb), F5.2, F12.1.
 - **R9** What agents write in Jira in the user's name is marked by the script: every
   comment and every created task's description starts with `[LADO: <agent>]` (sent as
   `\[LADO: <agent>\]`, since Jira shows a bare `[...]` as a broken link), the agent's
@@ -201,7 +208,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
-| 2026-10-09 | 1.1.0 | R3: `assign` and `label` actions, comment ids in `get`, description and Actions table name them; `--comment` counts for a required comment field (F3.2); `--resolution`/`--field` on a task already in the target status refused (F3.3). R6: status words `in progress`, `review`, `done` in the example. R8: after exit 1 or 5xx on a write, check with `get`/`search` before running it again (F3.1); unreadable `SSL_CERT_FILE` is exit 10 (F3.4). R12: `--wiki` also for wiki text that looks like Markdown (F5.1); parentheses in link URLs (F5.2) | The sdlc kit's requirements T1–T5 (session artifact `tracker-jira-server-requirements-6a653014.md`); report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1–F3.4, F5.1, F5.2; the human: "согласен", "Да, всё как рекомендуешь" |
+| 2026-10-09 | 1.1.0 | R3: `assign` and `label` actions, comment ids in `get`, description and Actions table name them; `--comment` counts for a required comment field (F3.2); `--resolution`/`--field` on a task already in the target status refused (F3.3). R6: status words `in progress`, `review`, `done` in the example. R8: after exit 1 or 5xx on a write, check with `get`/`search` before running it again (F3.1); unreadable `SSL_CERT_FILE` is exit 10 (F3.4). R12: `--wiki` also for wiki text that looks like Markdown (F5.1); parentheses in link URLs (F5.2). From the 1.1.0 evaluation (7bc2beb) and trial `trial-1.1.0`: an unknown login is reported, not guessed (F12.1); a refused unassign is named (F3.2); a comment after a transition failing with 9 or 5xx may have been added, check with `get` (F5.3); R8 names `assign`'s 401/404 (F5.2); R5: `assign` prints the login of `JIRA_USER`, not `me` | The sdlc kit's requirements T1–T5 (session artifact `tracker-jira-server-requirements-6a653014.md`); report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1–F3.4, F5.1, F5.2; the human: "согласен", "Да, всё как рекомендуешь"; the release gate: "Оставить F12.1/F5.3/F3.2, сделать F5.2, логин вместо me" |
 | 2026-10-09 | 1.0.2 | F5.1: code-block languages limited to Jira 8.13's list with synonyms, the rest and none → `{code:none}`; `transition --comment` posted separately when the transition has no comment field, and F5.6: also when the task is already in the target status (R3); the mark sent as `\[LADO: …\]` (R9); SKILL.md's false phrase "a code block … ends the list" removed | Trial artifact `trial-1.0.1` (test Jira Server 8.13.19, TEST-20), items 1–4; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (a0b8837), F5.1; the human: "Да, improve → 1.0.2 с пунктами 1–4"; report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (f20af91), F5.6, and the release gate: "исправить F5.6 и сразу проверить" |
 | 2026-10-09 | 1.0.1 | R12: Markdown in, converted to wiki markup by `jira.py` (minimal subset, raw fallback, `--wiki`); SKILL.md's wiki-markup section replaced; R7 no longer says "converts nothing". Fixed from report 1.0.1 (16909d7): F5.2 blank lines inside a list dropped, SKILL.md says a code block ends a numbered list; F5.3 wiki characters escaped inside `{{…}}`; F5.4 images `![alt](url)` pass as they are; F5.5 SKILL.md: one paragraph per line. F5.1 (code-block languages) waits for the test-Jira trial. Patch, not minor, by the human's decision: the kit is not yet published | The human's request, 2026-10-09 (messages #1253, #1263, #1279); report `kit-reports/tracker-jira-server-1.0.0-2026-10-08.md` (1240f8d), 0 findings; report `kit-reports/tracker-jira-server-1.0.1-2026-10-09.md` (16909d7) and the release gate: "давай починим F5.2 - F5.5, а потом займемся тестированием" |
 | 2026-10-08 | 1.0.0 | Supported versions named as Jira 8.4 or newer | Report `kit-reports/tracker-jira-server-0.1.1-2026-10-08.md` (37181e0), F5.2 |
