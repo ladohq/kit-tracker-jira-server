@@ -1,5 +1,3 @@
 # Backlog
 
-- Report `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (6efeefc), F3.5 [low]: row 7 of SKILL.md's exit-code table says "check the key" also after a 404 on `assign … none`, where the key was found a moment before; add "(after `assign … none`: report it)".
-- Same report, F6.1 [low]: R8 in BLUEPRINT.md lists "5, 6, 7, 10, 429" for the advice after a failed comment; the 1.2.0 log row and the code include 4 too.
-- Trial of 1.2.0 on the test Jira Server 8.13 not done before the release: `whoami` (`/rest/api/2/myself`), `assign` refusing another's task and `--reassign`, the script run by `uv` in a LADO session.
+- Trial of the script run by `uv` inside a live LADO session (agent environment, `LADO_AGENT`) not done since 1.2.0; the 1.3.0 trial on the test Jira Server 8.13.19 (run `improve/tracker-jira-server-1-3-0`, artifact `trial-1.3.0`, TEST-21) covered `whoami`, `edit`, `assign` and `--reassign` from a shell.
