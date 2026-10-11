@@ -2,15 +2,27 @@
 
 - Дата: 2026-10-12
 - Кит: `.` (worktree запуска `improve/tracker-jira-server-1-3-0`), путь задан
-- Коммит: e857643 (`kit.yaml` `version: 1.3.0`)
+- Коммит: 4e1153c (`kit.yaml` `version: 1.3.0`). Визит 1 оценивал e857643 (отчёт 1d5da77).
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md`
   (6efeefc, оценивал 0a71e86; на шаге `assess` взят как оценка, текст кита с тех пор не
   менялся). База — 6efeefc, её называет план. Дифф
   `git diff 6efeefc -- kit.yaml README.md BLUEPRINT.md agents flows skills` затрагивает
   5 файлов: BLUEPRINT.md, README.md, kit.yaml, skills/tracker/SKILL.md,
-  skills/tracker/jira.py. Визит 1 шага `evaluate`.
-- Проходы: изменение около 100 строк. Три прохода по изменённому тексту я сделал сам, по 12
+  skills/tracker/jira.py.
+- Визит 2 шага `evaluate`, после гейта выпуска («исправить F6.2 и F9.2»). С визита 1
+  (e857643 → 4e1153c) изменились: описание в `kit.yaml` (F6.2); `LEADING_MARK` в `jira.py`
+  и пункт **edit** в SKILL.md (F9.2); тест `test_edit_replaces_only_a_mark_at_the_start`;
+  тестов 98.
+- Проходы визита 2. Изменение — 13 строк текста кита. Три прохода я сделал сам, по 12
+  критериям и известным дырам: 1) `kit.yaml` против README и SKILL.md; 2) новое выражение
+  пробой на шести текстах (метка экранированная и нет, ссылки Markdown и wiki, метка не
+  первой, метка со скобками после неё); 3) пункт **edit** SKILL.md против кода. Новых
+  находок нет. Полный проход по пяти файлам был на визите 1 (ниже); правки визита 2
+  касаются только мест его находок, и я перечитал их вместе с окружением (`mark`, `remark`,
+  `cmd_edit`, пункт **edit**, описание kit.yaml). Однопроходных находок отброшено: 0.
+- Проходы визита 1:
+  изменение около 100 строк. Три прохода по изменённому тексту я сделал сам, по 12
   критериям и известным дырам, с разных начал: 1) kit.yaml, README и BLUEPRINT R3/R8/R9/R11/R12;
   2) `cmd_edit`, `remark`, `_read_issue`/`_print_issue` против таблицы кодов SKILL.md;
   3) SKILL.md (описание, область записи, строка и пункт **edit**, «Writing in Jira»).
@@ -29,8 +41,8 @@
 | a. `lado kits check` | OK; 0 предупреждений; `expects commands: uv` |
 | a. Бюджет | green; нет жёлтых и красных мер |
 | a. Потоки | 0 нарисовано: потоков нет (R2), скелетов в BLUEPRINT.md нет |
-| b. Рубрика | 2 находки (0 high, 0 medium, 2 low); обе находки отчёта 1.2.0 (F3.5, F6.1) RESOLVED; 10 из 12 критериев без находок |
-| Охват | повторная оценка изменённого текста и полный проход по 5 файлам, которых касается дифф (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); тесты: 97, OK |
+| b. Рубрика | 0 открытых находок; F6.2, F9.2 визита 1 и F3.5, F6.1 отчёта 1.2.0 RESOLVED; 12 из 12 критериев без находок |
+| Охват | повторная оценка изменённого текста и полный проход по 5 файлам, которых касается дифф (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/jira.py); тесты: 98, OK |
 | Правило остановки | выполнено: 0 high, 0 medium в изменённом тексте |
 
 Счёт относится только к тому, что названо в строке «Охват»: счёт повторной оценки и счёт
@@ -78,10 +90,7 @@ no flows in . or BLUEPRINT.md: nothing to do (exit status 0)
 
 ## Исправить сначала
 
-Блокирующих находок нет. По желанию, обе low:
-
-1. Назвать `edit` в описании кита в `kit.yaml` (F6.2).
-2. Сузить `LEADING_MARK` до формы метки или сказать в SKILL.md «a leading mark» (F9.2).
+Ничего: открытых находок нет.
 
 ## Находки
 
@@ -113,18 +122,12 @@ run it again)», как у `label`. F3.5 закрыта (см. «Прежние 
 
 SKILL.md, README, BLUEPRINT R3/R8/R9/R11/R12 и код согласны во флагах `edit`, метке,
 области записи и кодах выхода; `edit --help` совпадает со строкой таблицы действий.
-Неточность «replaces the description's old one» — F9.2.
+Обещание о метке совпадает с кодом (см. 9).
 
 ### 6. Дублирование
 
-- **F6.2** [low] `kit.yaml:4`
-  > The tracker skill for Jira Server / Data Center 8.4 or newer: find, read, create, move, comment
-  Описание кита (строки 4-7) перечисляет действия 1.2.0 без `edit`. README.md:4 («creates,
-  edits (summary and description), moves,») и описание SKILL.md его называют, так что копии
-  уже расходятся. Тот, кто выбирает кит по `lado kits show`/`list`, не увидит, что кит
-  переписывает название и описание. Автор сам отметил это в `build-report`; план для
-  `kit.yaml` называл только версию.
-  Fix: дописать в описание «edit (summary and description)». Passes: 3/3 и полный проход.
+Описание кита теперь называет `edit`: kit.yaml:4-5 «create, edit (summary and description),
+move», как README и SKILL.md (F6.2 визита 1 RESOLVED).
 
 ### 7. Когда звать человека
 
@@ -135,24 +138,13 @@ as the lead, tell the human».
 ### 8. Повторные визиты
 
 Не применимо: потоков нет. `edit` идемпотентен: «A field already so is not sent, so an edit
-run twice changes nothing the second time» (jira.py:700).
+run twice changes nothing the second time» (jira.py:701).
 
 ### 9. Краткость и «почему»
 
-- **F9.2** [low] `skills/tracker/jira.py:514`
-  > LEADING_MARK = re.compile(r"\A\s*\\?\[LADO:[^\n]*?\\?\]\s*")
-  Выражение ловит любой текст от `[LADO:` до первой `]` в начале описания, а не только
-  форму метки, и только в самом начале. В итоге (а) ссылка в начале текста, чьё имя
-  начинается с «LADO:», теряется, и (б) если человек написал текст над старой меткой,
-  после `edit` из текста `get` меток станет две. SKILL.md:62 при этом обещает без
-  оговорок: «Your mark replaces the description's old one.» Оба случая редки и задевают
-  только саму метку.
-  Fix: ловить только форму метки (`\\?\[LADO: [^\]\n|]*\\?\]`), или написать в SKILL.md:62
-  «a leading mark».
-  Passes: 1/3 (полный проход), confirmed. Проба:
-  `R.sub('', '[LADO: x](http://e/a) hello', count=1)` → `'(http://e/a) hello'`;
-  `R.sub('', 'a\n\\[LADO: analyst\\]\n\nb2', count=1)` → без изменений, затем `mark`
-  добавляет вторую метку.
+Пункт **edit** говорит, что заменяется и что нет: SKILL.md:62 «Your mark replaces a mark at
+the very start of the description; one further down stays.», и код делает это
+(`jira.py:515`, тест `test_edit_replaces_only_a_mark_at_the_start`) — F9.2 визита 1 RESOLVED.
 
 ### 10. Описания навыков
 
@@ -195,10 +187,12 @@ run twice changes nothing the second time» (jira.py:700).
 | Находка | Статус | Доказательство |
 |---|---|---|
 | F3.5 [low] строка 7: «check the key» после 404 на `assign … none` | RESOLVED | SKILL.md:149 «check the key; report it if the key came from someone else (after `assign … none`: report it)» |
-| F6.1 [low] R8 без кода 4 | RESOLVED | BLUEPRINT.md:125 «other failure (4, 5, 6, 7, 10, 429), report it and send the comment only when told to»; `jira.py:813` ветка `else` — «report it; send the comment with comment once you are told to» |
+| F6.2 [low] (визит 1) `kit.yaml` без `edit` | RESOLVED | kit.yaml:4-5 «find, read, create, edit (summary and description), move» |
+| F9.2 [low] (визит 1) `LEADING_MARK` ловит ссылку и не только начало | RESOLVED | `jira.py:515`: выражение ловит только `\[LADO: имя\]` в самом начале, не ссылку; проба: `'[LADO: x](http://e) hi'` и та же ссылка в wiki-разметке не меняются, `'\\[LADO: dev\\]\n\nbody'` → `'body'`; SKILL.md:62 «one further down stays» |
+| F6.1 [low] R8 без кода 4 | RESOLVED | BLUEPRINT.md:125 «other failure (4, 5, 6, 7, 10, 429), report it and send the comment only when told to»; `jira.py:814` ветка `else` — «report it; send the comment with comment once you are told to» |
 
 Изменения плана: `edit` (jira.py, SKILL.md, тесты), README, `kit.yaml` 1.3.0, BLUEPRINT —
-сделаны, как в списке `build-report`; проверено по файлам и тестам (97, OK). Проба на
+сделаны, как в списке `build-report`; проверено по файлам и тестам (98, OK). Проба на
 тестовой Jira (R10) — не дело автора, её проводит supervisor перед одобрением релиза.
 
 ## Вырезанные правила
@@ -209,6 +203,8 @@ run twice changes nothing the second time» (jira.py:700).
 | SKILL.md:27-28 «…and only on the tasks named; your process kit's roles and steps may allow more.» | SKILL.md:28-30, оба правила на месте |
 | README.md:78-81 метка и область записи | README.md:78-84, оба правила на месте, дополнены `edit` |
 | BLUEPRINT.md R8, R9, R11, R12 (переписанные строки) | те же требования; только дополнения |
+| kit.yaml:4-7 описание (визит 2, переписано) | kit.yaml:4-8, то же с `edit` |
+| SKILL.md:62 «Your mark replaces the description's old one.» (визит 2) | SKILL.md:62-63, уточнено: только метка в самом начале |
 | jira.py `cmd_get` (тело) | `_read_issue` + `_print_issue`, поведение то же (тесты `get` проходят) |
 
 Ни одно правило не потеряно.
