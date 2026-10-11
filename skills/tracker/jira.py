@@ -510,8 +510,9 @@ def mark(text):
     return "%s\n\n%s" % (label, text) if text else label
 
 
-# A leading mark, as Jira keeps it (escaped) or as an agent may retype it.
-LEADING_MARK = re.compile(r"\A\s*\\?\[LADO:[^\n]*?\\?\]\s*")
+# A mark at the very start, as Jira keeps it (escaped) or as an agent may retype it; not a
+# link whose text starts with "LADO:" (wiki [LADO: x|url], Markdown [LADO: x](url)).
+LEADING_MARK = re.compile(r"\A\s*\\?\[LADO: [^\]\n|\\]*\\?\](?!\()\s*")
 
 
 def remark(text):

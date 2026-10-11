@@ -59,9 +59,9 @@ with no remote has no such page, so give the branch and the commit hash in a `co
   `--field 'priority={"name": "High"}'`.
 - **edit**: changes only what you give; a field already so is left as it is, and when
   nothing changes it says so: that is success. It prints the task's new state, as `get`
-  does. Your mark replaces the description's old one. To rewrite a description from what
-  `get` printed, send the whole text in wiki markup with `--wiki`; write a new one in
-  Markdown.
+  does. Your mark replaces a mark at the very start of the description; one further down
+  stays. To rewrite a description from what `get` printed, send the whole text in wiki
+  markup with `--wiki`; write a new one in Markdown.
 - **transition**: the target is a transition's name or id, a target status, or a word of
   `statuses` in the settings ("review"). With no target it lists the transitions open to
   you now; run that first when you are unsure. A screen that asks for fields is named

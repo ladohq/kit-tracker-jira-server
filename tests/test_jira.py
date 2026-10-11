@@ -759,6 +759,17 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(self.sent("PUT", "issue/TEST-1")[0]["body"]["fields"]["description"],
                          "\\[LADO: developer\\]\n\n*bold*\n# one\n# two\n")
 
+    def test_edit_replaces_only_a_mark_at_the_start(self):
+        for text, sent in [
+                ("[LADO: x](http://e/a) hello", "[LADO: x|http://e/a] hello"),
+                ("a\n\\[LADO: analyst\\]\n\nb", "a\n\\[LADO: analyst\\]\n\nb"),
+                ("[LADO: analyst]\n\nb", "b")]:
+            self.route_edit(("T", "old"), ("T", "new"))
+            code, _, err = self.run_jira("edit", "TEST-1", "--description", text)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(self.sent("PUT", "issue/TEST-1")[-1]["body"]["fields"]
+                             ["description"], "\\[LADO: developer\\]\n\n" + sent)
+
     def test_edit_description_without_lado_agent_has_no_mark(self):
         self.route_edit(("T", "old"), ("T", "new"))
         with mock.patch.dict(os.environ, {"LADO_AGENT": ""}):
