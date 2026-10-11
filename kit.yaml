@@ -1,5 +1,5 @@
 name: tracker-jira-server
-version: 1.2.0
+version: 1.3.0
 description: >-
   The tracker skill for Jira Server / Data Center 8.4 or newer: find, read, create, move, comment
   on, assign and label tasks, link a branch or commit to tasks, and say which account it works

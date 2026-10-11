@@ -5,8 +5,8 @@
 # ///
 """Jira Server / Data Center 8.4 or newer from the command line: REST API v2, Basic auth.
 
-Commands: get, search, create, transition, comment, assign, label, link, whoami (run with
---help). Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD; the password and
+Commands: get, search, create, edit, transition, comment, assign, label, link, whoami (run
+with --help). Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD; the password and
 JIRA_URL are never printed, the login only as an account Jira shows anyway: an assignee,
 or whoami's answer.
 Text sent to Jira is Markdown, converted to Jira wiki markup (--wiki sends it as it is).
@@ -510,6 +510,17 @@ def mark(text):
     return "%s\n\n%s" % (label, text) if text else label
 
 
+# A leading mark, as Jira keeps it (escaped) or as an agent may retype it.
+LEADING_MARK = re.compile(r"\A\s*\\?\[LADO:[^\n]*?\\?\]\s*")
+
+
+def remark(text):
+    """The mark of a description edit writes: a leading mark is replaced by this agent's."""
+    if not os.environ.get("LADO_AGENT", "").strip():
+        return text
+    return mark(LEADING_MARK.sub("", text, count=1))
+
+
 def parse_fields(pairs):
     fields = {}
     for pair in pairs or []:
@@ -546,14 +557,25 @@ def _person(user):
     return login or name or "?"
 
 
-def cmd_get(jira, args):
+def _read_issue(jira, key):
+    """The task with the fields get shows, and the Epic Link field id or None."""
     config = load_config(required=False)
     names = list(GET_FIELDS)
     epic = (config or {}).get("fields", {}).get("epic_link")
     if epic:
         names.append(epic)
-    issue = jira.call("GET", "issue/" + urllib.parse.quote(args.key),
-                      {"fields": ",".join(names)}, missing=missing_issue(args.key))
+    issue = jira.call("GET", "issue/" + urllib.parse.quote(key),
+                      {"fields": ",".join(names)}, missing=missing_issue(key))
+    return issue or {}, epic
+
+
+def cmd_get(jira, args):
+    issue, epic = _read_issue(jira, args.key)
+    _print_issue(issue, epic, args.comments)
+    return OK
+
+
+def _print_issue(issue, epic, count):
     fields = issue.get("fields") or {}
     print("%s  %s" % (issue.get("key"), fields.get("summary")))
     print("Type: %s   Status: %s   Priority: %s" % (
@@ -570,7 +592,7 @@ def cmd_get(jira, args):
     print("Created: %s   Updated: %s" % (fields.get("created"), fields.get("updated")))
     print("\nDescription:\n%s" % (fields.get("description") or "(empty)"))
     comments = (fields.get("comment") or {}).get("comments") or []
-    shown = comments[-args.comments:] if args.comments > 0 else []
+    shown = comments[-count:] if count > 0 else []
     if comments:
         print("\nComments: %d, the last %d shown" % (len(comments), len(shown)))
     else:
@@ -579,7 +601,6 @@ def cmd_get(jira, args):
         print("\n--- comment %s, %s, %s\n%s" % (
             comment.get("id"), _name(comment.get("author")), comment.get("created"),
             comment.get("body")))
-    return OK
 
 
 def cmd_search(jira, args):
@@ -656,6 +677,43 @@ def cmd_create(jira, args):
                       % (type_name, project, "; ".join(hints)))
     created = jira.call("POST", "issue", body={"fields": fields}, sent=fields)
     print("%s created" % created.get("key"))
+    return OK
+
+
+def _same(old, new):
+    return ((old or "").replace("\r\n", "\n").strip()
+            == (new or "").replace("\r\n", "\n").strip())
+
+
+def cmd_edit(jira, args):
+    if args.summary is None and args.description is None:
+        raise Failure(USAGE, "give --summary, --description or both")
+    if args.summary is not None and not args.summary.strip():
+        raise Failure(USAGE, "the summary is empty")
+    wanted = {}
+    if args.summary is not None:
+        wanted["summary"] = args.summary
+    if args.description is not None:
+        wanted["description"] = remark(text_arg(args.description, args.wiki))
+    issue, epic = _read_issue(jira, args.key)
+    current = issue.get("fields") or {}
+    # A field already so is not sent, so an edit run twice changes nothing the second time.
+    fields = {name: value for name, value in wanted.items()
+              if not _same(current.get(name), value)}
+    if not fields:
+        print("%s: %s already so, nothing changed\n" % (args.key, " and ".join(wanted)))
+        _print_issue(issue, epic, 0)
+        return OK
+    jira.call("PUT", "issue/" + urllib.parse.quote(args.key), body={"fields": fields},
+              missing=missing_issue(args.key), sent=None)
+    try:
+        issue, epic = _read_issue(jira, args.key)
+    except Failure as failure:
+        raise Failure(failure.code, "%s: %s changed, but reading the task back failed (do "
+                                    "not run it again): %s"
+                      % (args.key, " and ".join(fields), failure.message))
+    print("%s: %s changed\n" % (args.key, " and ".join(fields)))
+    _print_issue(issue, epic, 0)
     return OK
 
 
@@ -913,6 +971,15 @@ def parser():
     p.add_argument("--field", action="append", metavar="ID=VALUE",
                    help="another field; a value starting with { or [ is JSON")
     p.set_defaults(run=cmd_create)
+
+    p = sub.add_parser("edit", help="change a task's summary or description")
+    p.add_argument("key")
+    p.add_argument("--summary", help="the new summary")
+    p.add_argument("--description", help="the new description, Markdown; '-' reads it "
+                                         "from stdin")
+    p.add_argument("--wiki", action="store_true",
+                   help="send --description as it is, as Jira wiki markup")
+    p.set_defaults(run=cmd_edit)
 
     p = sub.add_parser("transition", help="list transitions, or move a task")
     p.add_argument("key")

@@ -2,8 +2,9 @@
 name: tracker
 description: >-
   The project's task tracker on Jira Server / Data Center: find tasks by JQL, read one,
-  create one (also under an epic), change its status, comment, assign it, add or remove
-  labels, link a branch or commit, say which account you work as. Use whenever your work touches a task in the tracker,
+  create one (also under an epic), change a task's summary or description, change its
+  status, comment, assign it, add or remove labels, link a branch or commit, say which
+  account you work as. Use whenever your work touches a task in the tracker,
   e.g. "file a bug", "take the task", "assign it to me", "move it to review", "mark it
   waiting for release", "close it", "tell the task what changed".
 ---
@@ -20,12 +21,13 @@ uv run --quiet --script ${SKILL_DIR}/jira.py <command> ...      # --help on any 
 If your CLI does not expand `${SKILL_DIR}`, use the folder this SKILL.md is in. The
 script logs in with the user's `JIRA_URL`, `JIRA_USER` and `JIRA_PASSWORD`; never ask
 for them, print them or put them in a file. Whatever you write in Jira appears in the
-user's name, so the script starts every comment and every new task's description with
+user's name, so the script starts every comment and every description it writes with
 `[LADO: <your agent name>]`; leave that mark to it.
 
 Reading is always fine. Create, transition, comment, assign, label or link only when your role, your
-step or the human asks for it, and only on the tasks named; your process kit's roles and
-steps may allow more.
+step or the human asks for it, and only on the tasks named. Edit only when the human or
+your step asks for it, since `edit` rewrites text a person may have written. Your process
+kit's roles and steps may allow more.
 
 ## Actions
 
@@ -34,6 +36,7 @@ steps may allow more.
 | find tasks | `search '<JQL>' [--start N] [--max N]` |
 | read a task (each comment with its id) | `get KEY-1 [--comments N]` |
 | create a task | `create --type <type> --summary '<text>' [--description -] [--wiki] [--epic KEY-9] [--epic-name '<name>'] [--field id=value]` |
+| change its summary or description | `edit KEY-1 [--summary '<text>'] [--description -] [--wiki]` |
 | see where a task can go | `transition KEY-1` |
 | change its status | `transition KEY-1 '<status or transition>' [--resolution Fixed] [--comment -] [--wiki]` |
 | comment | `comment KEY-1 - [--wiki]` (the text on stdin) |
@@ -54,6 +57,11 @@ with no remote has no such page, so give the branch and the commit hash in a `co
   project requires more fields, the script names them (exit 8); give each with
   `--field id=value`, a value starting with `{` or `[` as JSON:
   `--field 'priority={"name": "High"}'`.
+- **edit**: changes only what you give; a field already so is left as it is, and when
+  nothing changes it says so: that is success. It prints the task's new state, as `get`
+  does. Your mark replaces the description's old one. To rewrite a description from what
+  `get` printed, send the whole text in wiki markup with `--wiki`; write a new one in
+  Markdown.
 - **transition**: the target is a transition's name or id, a target status, or a word of
   `statuses` in the settings ("review"). With no target it lists the transitions open to
   you now; run that first when you are unsure. A screen that asks for fields is named
@@ -82,7 +90,7 @@ with no remote has no such page, so give the branch and the commit hash in a `co
 
 ## Writing in Jira: Markdown
 
-Write descriptions and comments in Markdown; the script converts it to Jira's wiki markup
+Write descriptions (`create`, `edit --description`) and comments in Markdown; the script converts it to Jira's wiki markup
 and keeps headings, bold, italic, inline code, fenced code blocks (a language Jira lacks
 becomes plain code), bullet and numbered lists (nested by indentation) and links
 `[text](url)`. Mentions `[~login]` and a bare `KEY-1` pass as they are. Wiki markup that
@@ -138,7 +146,7 @@ the tracker; otherwise go on with it. Act on the exit code:
 | 4 | a Jira variable is unset, or `JIRA_URL` is wrong (not `https://`, a redirect, not Jira's answer) | report it; the user fixes their shell profile and restarts the session |
 | 5 | credentials refused, or Jira wants a CAPTCHA | stop using Jira and report it: Jira asks for a CAPTCHA after failed logins (on some servers after the first), so one more try can lock the login. As the line says, every agent stops using Jira until the human says it is fixed; the lead tells them |
 | 6 | no access to the task or project | report what you tried; look for no way around |
-| 7 | task or project not found | check the key; report it if the key came from someone else |
+| 7 | task or project not found | check the key; report it if the key came from someone else (after `assign … none`: report it) |
 | 8 | Jira needs fields (named) | give them and run again; if you cannot know the values, report it |
 | 9 | Jira not reachable or did not answer | report it (VPN or company network?) and send Jira nothing more until you are told it answers again |
 | 10 | TLS failed | report it: a corporate CA goes in a file named by `SSL_CERT_FILE` |

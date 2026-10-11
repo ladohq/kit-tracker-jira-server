@@ -723,6 +723,74 @@ class CommandsTest(JiraTestCase):
             self.assertEqual(code, jira.USAGE, err)
         self.assertEqual(self.jira.requests, [])
 
+    def route_edit(self, *states):
+        """GET answers each (summary, description) in turn; PUT answers 204."""
+        self.jira.route("GET", "issue/TEST-1", Seq(*[
+            {"key": "TEST-1", "fields": {"summary": summary, "description": description,
+                                         "status": {"name": "Open"}}}
+            for summary, description in states]))
+        self.jira.route("PUT", "issue/TEST-1", None, status=204)
+
+    def test_edit_summary_only(self):
+        self.route_edit(("Old", "text"), ("New title", "text"))
+        code, out, err = self.run_jira("edit", "TEST-1", "--summary", "New title")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("PUT", "issue/TEST-1")[0]["body"],
+                         {"fields": {"summary": "New title"}})
+        self.assertTrue(out.startswith("TEST-1: summary changed\n"))
+        self.assertIn("TEST-1  New title", out)
+        self.assertIn("Status: Open", out)
+
+    def test_edit_description_converted_and_marked(self):
+        self.route_edit(("T", "a person's text"), ("T", "new"))
+        code, out, err = self.run_jira("edit", "TEST-1", "--description", "-",
+                                       stdin="**Steps**\n- open\n")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("PUT", "issue/TEST-1")[0]["body"], {"fields": {
+            "description": "\\[LADO: developer\\]\n\n*Steps*\n* open\n"}})
+        self.assertIn("TEST-1: description changed", out)
+
+    def test_edit_description_wiki_sent_as_it_is_and_the_mark_replaced(self):
+        old = "\\[LADO: analyst\\]\n\n*bold*\n# one"
+        self.route_edit(("T", old), ("T", "new"))
+        code, _, err = self.run_jira("edit", "TEST-1", "--wiki", "--description", "-",
+                                     stdin=old + "\n# two\n")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("PUT", "issue/TEST-1")[0]["body"]["fields"]["description"],
+                         "\\[LADO: developer\\]\n\n*bold*\n# one\n# two\n")
+
+    def test_edit_description_without_lado_agent_has_no_mark(self):
+        self.route_edit(("T", "old"), ("T", "new"))
+        with mock.patch.dict(os.environ, {"LADO_AGENT": ""}):
+            code, _, err = self.run_jira("edit", "TEST-1", "--description", "by hand")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("PUT", "issue/TEST-1")[0]["body"],
+                         {"fields": {"description": "by hand"}})
+
+    def test_edit_sends_only_the_fields_that_differ(self):
+        self.route_edit(("Same", "old"), ("Same", "new"))
+        code, _, err = self.run_jira("edit", "TEST-1", "--summary", "Same",
+                                     "--description", "new")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("PUT", "issue/TEST-1")[0]["body"], {"fields": {
+            "description": "\\[LADO: developer\\]\n\nnew"}})
+
+    def test_edit_already_so_changes_nothing(self):
+        self.route_edit(("Same", "\\[LADO: developer\\]\r\n\r\nnew"))
+        code, out, err = self.run_jira("edit", "TEST-1", "--summary", "Same",
+                                       "--description", "new")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith(
+            "TEST-1: summary and description already so, nothing changed\n"))
+        self.assertIn("TEST-1  Same", out)
+        self.assertEqual(self.sent("PUT", "issue/TEST-1"), [])
+
+    def test_edit_needs_a_field_and_text(self):
+        for argv in ([], ["--wiki"], ["--summary", " "], ["--description", " "]):
+            code, _, err = self.run_jira("edit", "TEST-1", *argv)
+            self.assertEqual(code, jira.USAGE, err)
+        self.assertEqual(self.jira.requests, [])
+
     def test_comment_marked_only_for_an_agent(self):
         self.jira.route("POST", "issue/TEST-1/comment", {"id": "100"}, status=201)
         code, out, err = self.run_jira("comment", "TEST-1", "**Done**: see [PR](http://x)")
@@ -826,6 +894,27 @@ class ErrorsTest(JiraTestCase):
                                "assign", "TEST-1", "none")
         self.assertNotIn("no such user", err)
         self.assertNotIn("check the key", err)
+
+    def test_edit_refused_or_not_found(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
+            "summary": "Old", "description": None}})
+        self.jira.route("PUT", "issue/TEST-1", {"errors": {"description": (
+            "Field 'description' cannot be set. It is not on the appropriate screen, or "
+            "unknown.")}}, status=400)
+        self.assertFails(jira.REFUSED, "Jira refused the values: description (Field",
+                         "edit", "TEST-1", "--description", "x")
+        self.jira.route("PUT", "issue/TEST-1",
+                        {"errorMessages": ["Issue Does Not Exist"]}, status=404)
+        self.assertFails(jira.NOT_FOUND, "task TEST-1 not found", "edit", "TEST-1",
+                         "--summary", "New")
+        self.jira.route("PUT", "issue/TEST-1", {"errorMessages": ["boom"]}, status=500)
+        self.assertFails(jira.SERVER_ERROR, "may have been applied", "edit", "TEST-1",
+                         "--summary", "New")
+
+    def test_edit_of_a_missing_task_sends_nothing(self):
+        self.assertFails(jira.NOT_FOUND, "task TEST-1 not found", "edit", "TEST-1",
+                         "--summary", "New")
+        self.assertEqual(self.sent("PUT", "issue/TEST-1"), [])
 
     def test_assign_answer_not_from_jira_is_not_an_unknown_user(self):
         self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {"assignee": None}})
