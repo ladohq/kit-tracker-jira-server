@@ -2,8 +2,9 @@
 
 A LADO kit for Jira Server and Data Center 8.4 or newer. It gives the roles of any process kit a
 skill named `tracker` that finds, reads, creates, edits (summary and description), moves,
-comments on, assigns and labels tasks, links a branch or commit to them and says which account it works as, through Jira's
-REST API v2 and a script on Python's standard library, run by `uv` (no MCP server). Jira Cloud is not supported.
+comments on, assigns and labels tasks, links a branch, a commit or another task to them
+and says which account it works as, through Jira's REST API v2 and a script on Python's
+standard library, run by `uv` (no MCP server). Jira Cloud is not supported.
 
 The kit has no agents and no flows: it adds the skill to a session led by a process kit.
 A process kit's roles say "use the tracker skill"; a role that cannot work without it
@@ -68,7 +69,8 @@ for example) they come translated, so `review: Code Review` may need to be
 target lists a task's next statuses as Jira names them.
 
 The other sections (issue types, labels, custom field ids such as Epic Link, which
-`$JIRA_URL/rest/api/2/field` lists) and the format, a strict subset of YAML, are in
+`$JIRA_URL/rest/api/2/field` lists, link type names when this Jira's differ) and the
+format, a strict subset of YAML, are in
 [`skills/tracker/SKILL.md`](skills/tracker/SKILL.md).
 
 ## What agents write

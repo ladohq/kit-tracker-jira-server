@@ -843,6 +843,77 @@ class CommandsTest(JiraTestCase):
                                 "object": {"url": url, "title": "commit abc"}})
 
 
+    def route_links(self, *links, key="TEST-1"):
+        self.jira.route("GET", "issue/" + key, {"key": key, "fields": {
+            "issuelinks": list(links)}})
+        self.jira.route("POST", "issueLink", None, status=201)
+
+    def test_link_task_relates_by_default(self):
+        self.route_links()
+        code, out, err = self.run_jira("link", "TEST-1", "TEST-2")
+        self.assertEqual(code, 0, err)
+        self.assertIn("TEST-1: linked (relates to TEST-2)", out)
+        self.assertEqual(self.sent("GET", "issue/TEST-1")[0]["query"],
+                         {"fields": "issuelinks"})
+        self.assertEqual(self.sent("POST", "issueLink")[0]["body"], {
+            "type": {"name": "Relates"}, "inwardIssue": {"key": "TEST-1"},
+            "outwardIssue": {"key": "TEST-2"}})
+        self.assertEqual(len(self.jira.requests), 2)  # nothing read back
+
+    def test_link_task_words_and_link_types(self):
+        self.write_config(CONFIG + "link_types:\n  blocks: Blockers\n")
+        self.route_links(key="TEST-5")
+        for word, name in (("blocks", "Blockers"), ("duplicates", "Duplicate"),
+                           ("derived", "Relates")):
+            code, out, err = self.run_jira("link", "TEST-5", "OTHER-7", "--type", word)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(self.jira.requests[-1]["body"]["type"], {"name": name})
+        self.assertIn("TEST-5: linked (derived from OTHER-7)", out)
+
+    def test_link_task_unknown_word_lists_the_words(self):
+        code, _, err = self.run_jira("link", "TEST-1", "TEST-2", "--type", "clones")
+        self.assertEqual(code, jira.REFUSED)
+        self.assertIn("relates, blocks, duplicates, derived", err)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_link_task_already_linked_changes_nothing(self):
+        blocks = {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"}
+        relates = {"name": "Relates", "inward": "relates to", "outward": "relates to"}
+        self.route_links({"type": blocks, "outwardIssue": {"key": "TEST-2"}},
+                         {"type": relates, "inwardIssue": {"key": "TEST-3"}})
+        for argv in (("TEST-2", "--type", "blocks"), ("test-3",)):
+            code, out, err = self.run_jira("link", "TEST-1", *argv)
+            self.assertEqual(code, 0, err)
+            self.assertIn("already linked", out)
+            self.assertIn("nothing changed", out)
+        self.assertEqual(self.sent("POST", "issueLink"), [])
+        # The other direction of a type that reads two ways is another link.
+        self.route_links({"type": blocks, "inwardIssue": {"key": "TEST-2"}})
+        code, out, err = self.run_jira("link", "TEST-1", "TEST-2", "--type", "blocks")
+        self.assertIn("TEST-1: linked (blocks TEST-2)", out)
+        self.assertEqual(len(self.sent("POST", "issueLink")), 1)
+
+    def test_link_arguments_refused_before_any_request(self):
+        for argv in (("TEST-1", "test-1"), ("TEST-1", "not-a-key"),
+                     ("TEST-1", "TEST-2", "--title", "x"),
+                     ("TEST-1", "https://git.example/b", "--type", "blocks")):
+            code, _, err = self.run_jira("link", *argv)
+            self.assertEqual(code, jira.USAGE, argv)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_get_shows_links(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {
+            "summary": "Linked", "issuelinks": [
+                {"type": {"name": "Relates", "inward": "relates to",
+                          "outward": "relates to"}, "inwardIssue": {"key": "ABC-2"}},
+                {"type": {"name": "Blocks", "inward": "is blocked by",
+                          "outward": "blocks"}, "outwardIssue": {"key": "XYZ-9"}}]}})
+        code, out, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Links: relates to ABC-2; blocks XYZ-9", out)
+        self.assertIn("issuelinks", self.jira.requests[0]["query"]["fields"])
+
+
 class ErrorsTest(JiraTestCase):
     def assertFails(self, code, text, *argv):
         got, out, err = self.run_jira(*(argv or ("get", "TEST-1")))
@@ -1044,10 +1115,38 @@ class ErrorsTest(JiraTestCase):
         self.jira.route("POST", "issue/TEST-1/remotelink", {"errors": {"url": "Invalid URL"}},
                         status=400)
         self.assertFails(jira.REFUSED, "refused the values: url (Invalid URL)",
-                         "link", "TEST-1", "not a url")
+                         "link", "TEST-1", "https://bad url")
         self.jira.route("POST", "issue/TEST-1/comment", {"errors": {"comment": "Too long"}},
                         status=400)
         self.assertFails(jira.REFUSED, "refused the values", "comment", "TEST-1", "x")
+
+    def test_link_task_failures(self):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {}})
+        self.jira.route("POST", "issueLink", None, status=401)
+        err = self.assertFails(jira.NO_ACCESS, "no permission to link TEST-1 and TEST-2 "
+                               "(401)", "link", "TEST-1", "TEST-2")
+        self.assertNotIn("stop using Jira", err)
+        self.jira.route("POST", "issueLink", {"errorMessages": ["No permission"]},
+                        status=403)
+        self.assertFails(jira.NO_ACCESS, "no permission to link", "link", "TEST-1", "TEST-2")
+        self.jira.route("POST", "issueLink", {"errorMessages": ["Issue does not exist"]},
+                        status=404)
+        self.assertFails(jira.NOT_FOUND, "cannot link TEST-1 and TEST-2: a task is missing",
+                         "link", "TEST-1", "TEST-2")
+        self.jira.route("POST", "issueLink", {"errorMessages": ["No link type"]},
+                        status=400)
+        err = self.assertFails(jira.REFUSED, "refused link type 'Blocks'",
+                               "link", "TEST-1", "TEST-2", "--type", "blocks")
+        self.assertIn("link_types.blocks", err)
+
+    def test_link_task_from_a_missing_task(self):
+        self.assertFails(jira.NOT_FOUND, "task TEST-1 not found", "link", "TEST-1", "TEST-2")
+        self.assertEqual(self.sent("POST", "issueLink"), [])
+
+    def test_link_with_refused_credentials_stops_all(self):
+        self.jira.route("GET", "issue/TEST-1", None, status=401)
+        self.assertFails(jira.CREDENTIALS_REFUSED, "stop using Jira",
+                         "link", "TEST-1", "TEST-2")
 
     def test_redirect_is_not_followed(self):
         self.jira.route("GET", "issue/TEST-1", None, status=302,

@@ -3,9 +3,9 @@ name: tracker
 description: >-
   The project's task tracker on Jira Server / Data Center: find tasks by JQL, read one,
   create one (also under an epic), change a task's summary or description, change its
-  status, comment, assign it, add or remove labels, link a branch or commit, say which
-  account you work as. Use whenever your work touches a task in the tracker,
-  e.g. "file a bug", "take the task", "assign it to me", "move it to review", "mark it
+  status, comment, assign it, add or remove labels, link a branch or commit, link a
+  task to a task, say which account you work as. Use whenever your work touches a task
+  in the tracker, e.g. "file a bug", "take the task", "assign it to me", "move it to review", "mark it
   waiting for release", "close it", "tell the task what changed".
 ---
 
@@ -43,10 +43,12 @@ kit's roles and steps may allow more.
 | assign a task | `assign KEY-1 <me \| login \| none> [--reassign]` (`none` unassigns) |
 | add or remove labels | `label KEY-1 [--add L ...] [--remove L ...]` |
 | link a branch, commit or pull request | `link KEY-1 <url> [--title '<text>']` |
+| link a task to a task | `link KEY-1 KEY-2 [--type relates\|blocks\|duplicates\|derived]` |
 | see which account you work as | `whoami` |
 
 The `link` URL is the branch's or commit's page on the repository's host; a repository
 with no remote has no such page, so give the branch and the commit hash in a `comment`.
+A task created from another task is linked to it: `link NEW-KEY OLD-KEY --type derived`.
 
 - **search**: `{project}` in the JQL is the project's key, e.g.
   `search 'project = {project} AND assignee = currentUser() AND resolution = Unresolved
@@ -80,6 +82,10 @@ with no remote has no such page, so give the branch and the commit hash in a `co
 - **assign**, **label**: when the task is already so, they change nothing and say so;
   that is success. `label` leaves the task's other labels as they are and prints its
   labels; a label is one word, no spaces (`waiting_for_release`).
+- **link** to a task: the link reads "KEY-1 <type> KEY-2": `link KEY-1 KEY-2 --type
+  blocks` is "KEY-1 blocks KEY-2"; `relates` is the default. Jira has no "derived" type,
+  so `derived` shows there as "relates to". A link already there changes nothing and
+  says so: that is success. `get` lists a task's links (`Links: …`).
 - Text of more than one line goes on stdin with `-`:
 
   ```bash
@@ -121,6 +127,8 @@ labels: [lado]                # added to every task you create
 fields:                       # custom field ids of this Jira (Jira's REST resource `field`)
   epic_link: customfield_10100
   epic_name: customfield_10101
+link_types:                   # a link word -> this Jira's link type name, if not the usual
+  duplicates: Duplicates      # (Relates, Blocks, Duplicate, Relates for derived)
 ```
 
 Read it when you need the project's words; the user changes it, not you.
@@ -145,12 +153,12 @@ the tracker; otherwise go on with it. Act on the exit code:
 | 3 | `.lado/tracker.yaml` missing, invalid, or lacks a setting | report it; the user fixes the file |
 | 4 | a Jira variable is unset, or `JIRA_URL` is wrong (not `https://`, a redirect, not Jira's answer) | report it; the user fixes their shell profile and restarts the session |
 | 5 | credentials refused, or Jira wants a CAPTCHA | stop using Jira and report it: Jira asks for a CAPTCHA after failed logins (on some servers after the first), so one more try can lock the login. As the line says, every agent stops using Jira until the human says it is fixed; the lead tells them |
-| 6 | no access to the task or project | report what you tried; look for no way around |
-| 7 | task or project not found | check the key; report it if the key came from someone else (after `assign … none`: report it) |
+| 6 | no access to the task or project, or no permission to link tasks | report what you tried; look for no way around |
+| 7 | task or project not found (`link`: one of the two tasks) | check the key; report it if the key came from someone else (after `assign … none`: report it) |
 | 8 | Jira needs fields (named) | give them and run again; if you cannot know the values, report it |
 | 9 | Jira not reachable or did not answer | report it (VPN or company network?) and send Jira nothing more until you are told it answers again |
 | 10 | TLS failed | report it: a corporate CA goes in a file named by `SSL_CERT_FILE` |
-| 11 | Jira refused the request (bad JQL, a refused field value, unknown type, transition not open), or `assign` refused a task another account holds | read the line, fix the request once; if it still fails, report it (`assign`: report it, never try another login or `--reassign` on your own) |
+| 11 | Jira refused the request (bad JQL, a refused field value, unknown type, transition not open, a link word not among the four or a link type this Jira lacks), or `assign` refused a task another account holds | read the line, fix the request once; if it still fails, report it (`assign`: report it, never try another login or `--reassign` on your own; a link type this Jira lacks: report it, the user sets `link_types`) |
 | 12 | Jira itself failed (5xx), or it is rate limiting requests (429) | report it |
 
 A failed write may have been applied. After exit 9 on a write, once you are told Jira

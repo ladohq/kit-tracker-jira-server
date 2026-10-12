@@ -54,11 +54,18 @@ WAIT = "; send Jira nothing more until you are told it answers again"
 NOT_JIRA = ("the answer is not Jira's: JIRA_URL is not Jira's base address (with its "
             "context path, if Jira has one)")
 CONFIG_PATH = os.path.join(".lado", "tracker.yaml")
-CONFIG_MAPS = ("issue_types", "statuses", "fields")
+CONFIG_MAPS = ("issue_types", "statuses", "fields", "link_types")
 CONFIG_LISTS = ("labels",)
 CONFIG_KEYS = ("project",) + CONFIG_MAPS + CONFIG_LISTS
 GET_FIELDS = ["summary", "status", "issuetype", "priority", "assignee", "reporter",
-              "labels", "created", "updated", "parent", "description", "comment"]
+              "labels", "created", "updated", "parent", "description", "comment",
+              "issuelinks"]
+# A link word, meaning "KEY <word> KEY2": the server's link type name (link_types may
+# replace it) and how the script says it.
+LINK_WORDS = {"relates": ("Relates", "relates to"), "blocks": ("Blocks", "blocks"),
+              "duplicates": ("Duplicate", "duplicates"),
+              "derived": ("Relates", "derived from")}
+ISSUE_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]*-\d+$")
 
 
 class Failure(Exception):
@@ -590,6 +597,9 @@ def _print_issue(issue, epic, count):
         print("Parent: " + fields["parent"].get("key", "?"))
     if epic and fields.get(epic):
         print("Epic: %s" % fields[epic])
+    links = [_link_phrase(link) for link in fields.get("issuelinks") or []]
+    if links:
+        print("Links: " + "; ".join(links))
     print("Created: %s   Updated: %s" % (fields.get("created"), fields.get("updated")))
     print("\nDescription:\n%s" % (fields.get("description") or "(empty)"))
     comments = (fields.get("comment") or {}).get("comments") or []
@@ -602,6 +612,14 @@ def _print_issue(issue, epic, count):
         print("\n--- comment %s, %s, %s\n%s" % (
             comment.get("id"), _name(comment.get("author")), comment.get("created"),
             comment.get("body")))
+
+
+def _link_phrase(link):
+    """A link as seen from the task that has it: 'blocks XYZ-9', 'is blocked by XYZ-9'."""
+    kind = link.get("type") or {}
+    if link.get("outwardIssue"):
+        return "%s %s" % (kind.get("outward") or "?", link["outwardIssue"].get("key"))
+    return "%s %s" % (kind.get("inward") or "?", (link.get("inwardIssue") or {}).get("key"))
 
 
 def cmd_search(jira, args):
@@ -933,10 +951,70 @@ def cmd_label(jira, args):
 
 
 def cmd_link(jira, args):
-    body = {"globalId": args.url, "object": {"url": args.url, "title": args.title or args.url}}
-    jira.call("POST", "issue/%s/remotelink" % urllib.parse.quote(args.key), body=body,
-              missing=missing_issue(args.key), sent=None)
-    print("%s: linked %s" % (args.key, args.url))
+    if re.match(r"^https?://", args.target):
+        if args.type:
+            raise Failure(USAGE, "--type is for a link to a task, not to a URL")
+        return _link_url(jira, args.key, args.target, args.title)
+    if not ISSUE_KEY.match(args.target):
+        raise Failure(USAGE, "'%s' is neither an http(s):// URL nor a task key such as "
+                             "ABC-12" % args.target)
+    if args.title is not None:
+        raise Failure(USAGE, "--title is for a link to a URL, not to a task")
+    if args.target.lower() == args.key.lower():
+        raise Failure(USAGE, "a task cannot be linked to itself")
+    return _link_task(jira, args.key, args.target, args.type or "relates")
+
+
+def _link_task(jira, key, other, word):
+    if word not in LINK_WORDS:
+        raise Failure(REFUSED, "link type '%s' is unknown; use one of: %s"
+                      % (word, ", ".join(LINK_WORDS)))
+    name, phrase = LINK_WORDS[word]
+    config = load_config(required=False)
+    name = (config or {}).get("link_types", {}).get(word, name)
+    said = "%s %s" % (phrase, other)
+    issue = jira.call("GET", "issue/" + urllib.parse.quote(key), {"fields": "issuelinks"},
+                      missing=missing_issue(key))
+    for link in (issue.get("fields") or {}).get("issuelinks") or []:
+        kind = link.get("type") or {}
+        if (kind.get("name") or "").lower() != name.lower():
+            continue
+        # A type that reads the same both ways (Relates) counts in either direction.
+        ends = ["outwardIssue"]
+        if kind.get("inward") == kind.get("outward"):
+            ends.append("inwardIssue")
+        if any((link.get(end) or {}).get("key", "").lower() == other.lower()
+               for end in ends):
+            print("%s: already linked (%s), nothing changed" % (key, said))
+            return OK
+    # Jira's REST API names the ends backwards: the inwardIssue is the one that "blocks".
+    body = {"type": {"name": name}, "inwardIssue": {"key": key},
+            "outwardIssue": {"key": other}}
+    try:
+        jira.call("POST", "issueLink", body=body, sent=None)
+    except Failure as failure:
+        # Jira answers this request with 401 for a missing permission; the GET above has
+        # just passed the login.
+        if (failure.status == 401 and not failure.denied) or failure.code == NO_ACCESS:
+            raise Failure(NO_ACCESS, "no permission to link %s and %s (%d)"
+                          % (key, other, failure.status))
+        if failure.code == NOT_FOUND:
+            raise Failure(NOT_FOUND, "cannot link %s and %s: a task is missing or not "
+                                     "visible to you (%s)" % (key, other, failure.message))
+        if failure.code == REFUSED:
+            raise Failure(REFUSED, "Jira refused link type '%s' (%s): if this Jira names "
+                                   "it otherwise, the user sets 'link_types.%s' in %s"
+                          % (name, failure.message, word, CONFIG_PATH))
+        raise
+    print("%s: linked (%s)" % (key, said))
+    return OK
+
+
+def _link_url(jira, key, url, title):
+    body = {"globalId": url, "object": {"url": url, "title": title or url}}
+    jira.call("POST", "issue/%s/remotelink" % urllib.parse.quote(key), body=body,
+              missing=missing_issue(key), sent=None)
+    print("%s: linked %s" % (key, url))
     return OK
 
 
@@ -1014,10 +1092,13 @@ def parser():
     p.add_argument("--remove", action="append", nargs="+", metavar="LABEL")
     p.set_defaults(run=cmd_label)
 
-    p = sub.add_parser("link", help="link a branch, commit or pull request URL to a task")
+    p = sub.add_parser("link", help="link a branch, commit or pull request URL, or another "
+                                    "task, to a task")
     p.add_argument("key")
-    p.add_argument("url")
-    p.add_argument("--title", help="link text (default: the URL)")
+    p.add_argument("target", help="an http(s):// URL, or the key of another task")
+    p.add_argument("--title", help="link text, for a URL (default: the URL)")
+    p.add_argument("--type", help="for a task: %s (default relates), meaning 'KEY <type> "
+                                  "TARGET'" % ", ".join(LINK_WORDS))
     p.set_defaults(run=cmd_link)
 
     p = sub.add_parser("whoami", help="the account you work as: display name (login)")
