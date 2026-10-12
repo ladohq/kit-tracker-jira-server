@@ -40,13 +40,25 @@ project.
   account the skill works as (`whoami`: login and display name from `/rest/api/2/myself`,
   never the password; SKILL.md names it by meaning, "which account do you work as"),
   link a branch, commit or pull request URL
-  (`link`, a remote link; with no URL, e.g. a repository without a remote, the branch and
-  hash go in a `comment`), change a task's summary or description (`edit KEY
+  (`link KEY <url> [--title]`, a remote link; with no URL, e.g. a repository without a
+  remote, the branch and hash go in a `comment`), link a task to a task (`link KEY KEY2
+  [--type <word>]`, a Jira issue link: the second argument `http(s)://…` is a URL, an
+  issue key is a task, anything else, a task linked to itself, `--type` with a URL or
+  `--title` with a key is exit 2 before any request; the words are tracker-yougile's,
+  so process kits link on both trackers alike: `relates` (default), `blocks`,
+  `duplicates`, `derived`, meaning "KEY <word> KEY2"; each maps to a link type name by a
+  fixed table, Relates, Blocks, Duplicate, Relates, which `link_types` (R6) may replace,
+  and the name is sent as it is: no list of the server's types, no matching, the script
+  never guesses a type; `derived` therefore reads as "relates to" in Jira; a link of
+  that type to KEY2 already there in that direction, or in either for a symmetric type,
+  is success with nothing changed; links across projects are allowed; nothing is read
+  back after the write), change a task's summary or description (`edit KEY
   [--summary '<text>'] [--description -] [--wiki]`: at least one of the two; the flags
   repeat `create`'s, the action's name `edit` is tracker-yougile's (LAD-12), so process
   kits call both trackers by the same action; a field already so is left untouched and,
   when nothing changes, that is said and is success, as in `assign` and `label`; the
-  output is the task's new state, as `get` prints it). `get` and `search` show the assignee as `Display Name (login)`,
+  output is the task's new state, as `get` prints it). `get` shows a task's links as one line `Links: relates to ABC-2; blocks XYZ-9`.
+  `get` and `search` show the assignee as `Display Name (login)`,
   comparable with `whoami`, and an unassigned task as `unassigned`. Nothing else (no delete, user search, attachments, boards or
   sprints, no "list all statuses": a task moves only by the transitions open now, which
   `transition KEY` lists); more commands are added when a project needs them. SKILL.md's
@@ -60,7 +72,10 @@ project.
   `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (full, b3e0aec), F5.2, F12.1,
   F5.4; the human at the triage of run `improve/tracker-jira-server-whoami`: "да");
   `edit` from the Yougile task LAD-13 and the human at the triage of run
-  `improve/tracker-jira-server-1-3-0`: "всё как рекомендуешь".
+  `improve/tracker-jira-server-1-3-0`: "всё как рекомендуешь"; task-to-task `link` from
+  the Yougile task LAD-21 (session artifacts `link-concept`, `lad-21-jira-brief`,
+  simplified by the human: "Реализуем самый простой механизм поддержки. При
+  необходимости точечно потом подправим").
 - **R4** No MCP server. The skill reaches Jira with `skills/tracker/jira.py`, on Python's
   standard library only, run by `uv` (`uv run --script`, the script's inline metadata
   naming the Python it needs and no dependencies), so `uv` finds or installs that Python.
@@ -86,7 +101,8 @@ project.
   `[a, b]` lists, `#` comments; anything else stops it with the path, the line and what is
   wrong (an unknown or misshaped top-level key names its line too). Only the project key
   is required; the other sections (issue type names, the mapping of process status words
-  to the board's statuses, labels, custom field ids such as Epic Link) are optional, and
+  to the board's statuses, labels, custom field ids such as Epic Link, `link_types`:
+  a link word to the server's link type name) are optional, and
   an action that needs a missing setting names it. The format is minimal and grows with
   real projects. The example in SKILL.md and README maps the status words process kits
   use (`in progress`, `review`, `done`). Issue type and status names are written as Jira shows them: on a
@@ -98,7 +114,9 @@ project.
   no ADF); users by `name`; search by `/rest/api/2/search`; create metadata by
   `/rest/api/2/issue/createmeta/{project}/issuetypes[/{id}]`; epics through the Epic Link
   custom field (an epic needs Epic Name; `parent` is for sub-tasks only); remote links by
-  `/rest/api/2/issue/{key}/remotelink`; TLS verified through the system store or
+  `/rest/api/2/issue/{key}/remotelink`; links between tasks by `POST
+  /rest/api/2/issueLink` with the type by name, the direction of `inwardIssue` and
+  `outwardIssue` as tried on the test Jira (R10); TLS verified through the system store or
   `SSL_CERT_FILE`, never disabled. Text goes to Jira as wiki markup (R12).
   *Source:* brief, section "Jira Server / Data Center 8.13".
 - **R8** Each failure is one plain line saying what happened and what to do, with an exit
@@ -113,7 +131,11 @@ project.
   (exit 11), as Atlassian's REST v2 documents for that resource, and "no such user" is
   said only for a login, never for unassigning (a 404 there is the task gone or not
   visible, exit 7); an unknown login is reported, never
-  guessed, and the exit-code table of SKILL.md says so in the row of 11. SKILL.md tells the agent what to do on each exit code,
+  guessed, and the exit-code table of SKILL.md says so in the row of 11. For `link`
+  between tasks, a 401 on the write without `X-Authentication-Denied-Reason` is no
+  permission to link (exit 6, no stop for every agent), a 404 on it is a task missing or
+  not visible (exit 7, both named), a link word not in the table or a type Jira refuses
+  is exit 11 (the second naming `link_types`); SKILL.md's rows 6, 7 and 11 say so. SKILL.md tells the agent what to do on each exit code,
   with one rule after "report it": wait for the answer when the step cannot go on without
   the tracker, otherwise go on. After Jira did not answer (exit 9) the agent sends Jira
   nothing more until told it answers again; the script's message says so. After a crash
@@ -152,10 +174,11 @@ project.
   comment, assign, label or link only when the agent's role, its step or the human asks for it, and only
   on the tasks named. `edit` is stricter, since it rewrites text a person may have
   written: only when the human or the agent's step asks for it. A process kit's roles and
-  steps may allow more. *Source:* critic's
+  steps may allow more. A task created from another task is linked to it with
+  `link NEW OLD --type derived`. *Source:* critic's
   finding F12.1 and Question 1; the human agreed at the second design visit; assign and
   label added with them in 1.1.0; `edit`'s rule from LAD-13 and the triage of run
-  `improve/tracker-jira-server-1-3-0`.
+  `improve/tracker-jira-server-1-3-0`; the `derived` rule from LAD-21.
 - **R12** Agents write the text they send to Jira (`comment`, `create --description`,
   `edit --description`, `transition --comment`) in Markdown; `jira.py` converts it to Jira wiki markup before
   adding the mark (R9), keeping the formatting of a minimal subset: headings, bold,
@@ -242,7 +265,10 @@ Reverse check:
   on the test Jira Server 8.13 before the human's release approval when that Jira is
   available, the trial of 1.2.0 left in `BACKLOG.md` (`whoami`, `assign --reassign`)
   with it; when it is not, the release goes on the fake-Jira tests and the trial stays
-  in `BACKLOG.md` (triage of run `improve/tracker-jira-server-1-3-0`).
+  in `BACKLOG.md` (triage of run `improve/tracker-jira-server-1-3-0`). In 1.4.0 the
+  direction of a task link is tried on the test Jira first (`link A B --type blocks`
+  shows "A blocks B"; the same link again adds none), with the human's permission, and
+  the tests then fix it (LAD-21).
 
 ## 4. Complexity budget
 
@@ -266,6 +292,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-12 | 1.4.0 | R3: `link KEY KEY2 [--type relates\|blocks\|duplicates\|derived]`, a Jira issue link by a fixed table of type names, already linked is success, `get` shows `Links:`; R6: `link_types`; R7: `POST issueLink`, type by name; R8: 401 on the link is exit 6, 404 exit 7, an unknown word or refused type exit 11; R11: a task created from another is linked with `derived`; R10: the direction tried on the test Jira before the tests fix it | Yougile task LAD-21; session artifacts `link-concept`, `lad-21-jira-brief`; the human: "Реализуем самый простой механизм поддержки… точечно потом подправим", "согласен. Давай не будем записывать в бэклог"; report `kit-reports/tracker-jira-server-1.3.0-2026-10-12.md` (972c83d), no open findings |
 | 2026-10-12 | 1.3.0 | R3: `edit KEY [--summary] [--description -] [--wiki]`, ten actions; R9: the mark on an edited description replaced or added; R11: `edit` only when the human or the step asks; R12: `edit --description` converted, text from `get` rewritten with `--wiki`; R8: `edit`'s refusals are exit 11; 404 after `assign … none` reported (F3.5); advice after a failed comment lists 4 (F6.1); R10: trial on the test Jira before the release approval when it is available | Yougile task LAD-13; report `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (6efeefc), F3.5, F6.1; the human at the triage of run `improve/tracker-jira-server-1-3-0`: "всё как рекомендуешь" |
 | 2026-10-09 | 1.2.0 | R4: `jira.py` run by `uv run --script`, `uv` in `expects.commands`, `dependencies.lado: ">=0.30"` (F10.1). R3: `whoami`; assignee as `Display Name (login)` or `unassigned` in `get`/`search` (F5.2); `assign` refuses a task held by another account unless `--reassign` (F12.1); pull request named in `link`, kit description "link a branch or commit to tasks" (F5.4). R5: the login also in `whoami` and assignees; `http://` to localhost (F5.5). R8: row 11 for `assign` (F5.1); "no such user" only for a login (F3.1); advice after a failed comment keeps the rules of 9 and 429 (F5.3). R9: look for `\[LADO: …\]` (F9.1). From the re-evaluations of the build: advice after a failed comment says report first after 4, 5, 6, 7, 10 and 429, and to fix a refused comment's text (d6590ef F5.1, cf31728 F3.4); a 404 on unassigning is the task gone or not visible, exit 7 (d6590ef F3.2, cf31728 F3.3); `assign` finds the holder by `name` or `key` (d6590ef F12.1); SKILL.md tells uv's and Python's messages from the script's, a traceback being a crash (d6590ef F3.1, cf31728 F5.5); SKILL.md names whose login is shown (d6590ef F5.2, F5.3); `.gitignore` for `__pycache__` | The sdlc kit's requirements for `tracker` (session artifact `tracker-requirements-690cd7a8.md`); report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (full, b3e0aec), F3.1, F5.1–F5.5, F9.1, F10.1, F12.1; the human at the triage: "F10.1 — запускать скрипт с помощью uv и добавить uv в expects.commands", "1. да 2. да 3. все четыре 4. minor"; reports `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (d6590ef, cf31728) and the human at the release gate: "исправить F5.5, F3.3, F3.4" |
 | 2026-10-09 | 1.1.0 | R3: `assign` and `label` actions, comment ids in `get`, description and Actions table name them; `--comment` counts for a required comment field (F3.2); `--resolution`/`--field` on a task already in the target status refused (F3.3). R6: status words `in progress`, `review`, `done` in the example. R8: after exit 1 or 5xx on a write, check with `get`/`search` before running it again (F3.1); unreadable `SSL_CERT_FILE` is exit 10 (F3.4). R12: `--wiki` also for wiki text that looks like Markdown (F5.1); parentheses in link URLs (F5.2). From the 1.1.0 evaluation (7bc2beb) and trial `trial-1.1.0`: an unknown login is reported, not guessed (F12.1); a refused unassign is named (F3.2); a comment after a transition failing with 9 or 5xx may have been added, check with `get` (F5.3); R8 names `assign`'s 401/404 (F5.2); R5: `assign` prints the login of `JIRA_USER`, not `me` | The sdlc kit's requirements T1–T5 (session artifact `tracker-jira-server-requirements-6a653014.md`); report `kit-reports/tracker-jira-server-1.0.2-2026-10-09.md` (full, 802c099), F3.1–F3.4, F5.1, F5.2; the human: "согласен", "Да, всё как рекомендуешь"; the release gate: "Оставить F12.1/F5.3/F3.2, сделать F5.2, логин вместо me" |
