@@ -2,7 +2,7 @@
 
 - Дата: 2026-10-12
 - Кит: `.` (worktree запуска `improve/tracker-jira-server-1-4-0`), путь задан
-- Коммит: 0c5a8a6 (`kit.yaml` `version: 1.4.0`)
+- Коммит: 07b1cd7 (`kit.yaml` `version: 1.4.0`). Визит 1 оценивал 0c5a8a6 (отчёт 14dd988).
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно `kit-reports/tracker-jira-server-1.3.0-2026-10-12.md`
   (972c83d, оценивал 4e1153c; на шаге `assess` взят как оценка). База — 4e1153c, её
@@ -10,7 +10,17 @@
   затрагивает 5 файлов: BLUEPRINT.md, README.md, kit.yaml, skills/tracker/SKILL.md,
   skills/tracker/jira.py (BLUEPRINT — в основном коммит чертежа b382529, автор поменял
   только раздел 4).
-- Проходы: изменение — около 150 строк текста кита. Сначала я прошёл его сам: дифф
+- Визит 2 шага `evaluate`, после гейта выпуска («исправить F3.1, F3.2; F5.1 - только по
+  просьбе»). С визита 1 (0c5a8a6 → 07b1cd7) изменились: `except` в `_link_task` (F3.1),
+  тест 503 → 12 и 401 → 5 (тестов 108), R8 и строка 1.4.0 журнала (F3.2), SKILL.md:51 и
+  R11 (F5.1).
+- Проходы визита 2. Изменение — 14 строк текста кита. Три прохода я сделал сам, по 12
+  критериям и известным дырам: 1) `jira.py` 1000-1015 против `Jira.call` и проба из
+  визита 1 (KEY2 → «Jira did not answer» теперь даёт `exit 9`, а не 7); 2) SKILL.md:27-51
+  против R11; 3) R8 против кода и строк 6/7/11 SKILL.md. Новых находок нет. Полный проход
+  по SKILL.md и коду `link` был на визите 1 (ниже); правки визита 2 касаются только мест его
+  находок, и я перечитал их вместе с окружением. Однопроходных находок отброшено: 0.
+- Проходы визита 1: изменение — около 150 строк текста кита. Сначала я прошёл его сам: дифф
   `jira.py` (`cmd_link`, `_link_task`, `_link_url`, `_link_phrase`, `_print_issue`, парсер)
   против `Jira.call`/`_http_failure`, затем SKILL.md и BLUEPRINT R3–R11 против кода. Вторым
   был полный проход (Re-evaluation 5) по 12 критериям и известным дырам. Его делал
@@ -29,9 +39,9 @@
 | a. `lado kits check` | OK; 0 предупреждений; `expects commands: uv` |
 | a. Бюджет | green; нет жёлтых и красных мер |
 | a. Потоки | 0 нарисовано: потоков нет (R2), скелетов в BLUEPRINT.md нет |
-| b. Рубрика | 3 находки (0 high, 2 medium, 1 low); 10 из 12 критериев без находок |
-| Охват | повторная оценка изменённого текста и полный проход по SKILL.md, всему, что касается `link` в `jira.py`, и изменённым частям BLUEPRINT; тесты: 107, OK |
-| Правило остановки | не выполнено: 0 high, 2 medium (F3.1, F5.1). Это совет для гейта выпуска, а не блок |
+| b. Рубрика | 0 открытых находок; F3.1, F3.2, F5.1 визита 1 RESOLVED; 12 из 12 критериев без находок |
+| Охват | повторная оценка изменённого текста и полный проход по SKILL.md, всему, что касается `link` в `jira.py`, и изменённым частям BLUEPRINT (визит 1); визит 2 — правки 0c5a8a6 → 07b1cd7 с окружением; тесты: 108, OK |
+| Правило остановки | выполнено: 0 high, 0 medium в изменённом тексте |
 
 Счёт относится только к тому, что названо в строке «Охват»: счёт повторной оценки и счёт
 полной оценки не сравнимы.
@@ -78,14 +88,13 @@ no flows in . or BLUEPRINT.md: nothing to do (exit status 0)
 
 ## Исправить сначала
 
-1. Выход 7 только при 404 на чтении KEY2, остальные ошибки пробрасывать как есть (F3.1).
-2. Правило `derived` переписать как «как связать», а не «когда связывать» (F5.1).
+Ничего: открытых находок нет.
 
 ## Находки
 
 ### 1. Границы ролей
 
-Не применимо: ролей нет. Границы записи для агентов — в SKILL.md:27-30; см. F5.1.
+Не применимо: ролей нет. Границы записи для агентов — в SKILL.md:27-30.
 
 ### 2. Передачи между шагами
 
@@ -93,33 +102,10 @@ no flows in . or BLUEPRINT.md: nothing to do (exit status 0)
 
 ### 3. Готовность и исходы
 
-- **F3.1** [medium] `skills/tracker/jira.py:1007`
-  > `            except Failure:`
-  После 404 на `POST issueLink` скрипт читает KEY2 и превращает в выход 7 («a task is
-  missing or not visible to you») любую ошибку этого чтения, а не только 404. Так 503 и
-  429 (должно быть 12), 403 (6), 401 или CAPTCHA (5, с «всем остановиться»), а также
-  «Jira не ответила» (9, «send Jira nothing more») становятся выходом 7. Строка 7 SKILL.md
-  говорит «check the key», и агент запускает команду снова. При 5 это лишняя неудачная
-  попытка входа, а значит риск блокировки. При 9 — новые запросы к Jira, которая не отвечает.
-  Fix: `except Failure as second:` → если `second.code != NOT_FOUND`, `raise`; иначе
-  нынешний выход 7. Добавить тест: GET KEY2 → 503 даёт выход 12.
-  Доказательство (пробы против фейка): POST → 404 «No issue link type…»; GET KEY2 → 503,
-  429, 403 или 401 — во всех случаях `exit 7 … a task is missing or not visible to you`;
-  GET KEY2 → «Jira did not answer» (9) — `exit 7 cannot link A-1 and A-2: …`.
-  Passes: 2/2 (мой проход и полный проход субагента).
-
-- **F3.2** [low] `BLUEPRINT.md:136`
-  > `  permission to link (exit 6, no stop for every agent), a 404 on it is a task missing or`
-  В R8 написано, что 404 на записи связи — это выход 7. Код (`jira.py:1002-1006`) после
-  404 читает KEY2 и, если задача есть, возвращает 11: на проверке Jira 8.13 ответила 404 на
-  неизвестный тип (trial-1.4.0, строки 10/10'). Поведение верное и сохраняет другую часть
-  R8 («a type Jira refuses is exit 11»), но чертёж его не описывает. Автор отметил это
-  в build-report сам.
-  Fix: в R8 после «a 404 on it» дописать «(the script then reads KEY2 once: present → the
-  type was refused, exit 11; missing → exit 7)», а строку 1.4.0 журнала дополнить этим
-  фактом из проверки.
-  Passes: 1/2, подтверждено: код `jira.py:1003` «# Jira 8.13 answers an unknown link type
-  with 404 too; KEY was just found.» расходится с цитатой R8.
+Каждый путь ошибки `link` имеет свой код: после 404 на POST чтение KEY2 даёт 11 (задача
+есть) или 7 (`if missing.code != NOT_FOUND: raise` — прочие сохраняют свой код,
+`jira.py:1007-1009`); R8 описывает это (`BLUEPRINT.md:138-140`). F3.1 и F3.2 визита 1
+RESOLVED (см. «Прежние находки»).
 
 ### 4. Независимая проверка
 
@@ -128,19 +114,10 @@ no flows in . or BLUEPRINT.md: nothing to do (exit status 0)
 
 ### 5. Противоречия
 
-- **F5.1** [medium] `skills/tracker/SKILL.md:51` (то же правило — в `BLUEPRINT.md:177`, R11)
-  > `A task created from another task is linked to it: \`link NEW-KEY OLD-KEY --type derived\`.`
-  Это написано как правило («is linked»), а SKILL.md:27 гласит: «Create, transition,
-  comment, assign, label or link only when your role, your step or the human asks for
-  it». Агент, который заводит баг «найденный при работе над ABC-1», прочтёт строку 51 как
-  приказ и создаст связь, о которой никто не просил. Другой агент так не сделает. Что
-  значит «created from», тоже не сказано.
-  Fix: SKILL.md «To link a task to the task it was created from: `link NEW-KEY OLD-KEY
-  --type derived`.», и R11 так же. Если человек хочет, чтобы связь ставилась всегда, без
-  просьбы, — то же правило, но в абзаце SKILL.md:27-30 как явное исключение («…; a task
-  you create from another task you also link to it with …»). Субагент дал medium, я —
-  low; взято medium.
-  Passes: 2/2.
+SKILL.md:51 «To link a task to the task it was created from: `link NEW-KEY OLD-KEY --type
+derived`.» говорит, как связать, а когда — решает SKILL.md:27 («link only when your role,
+your step or the human asks for it»); R11: «under the same rule: only when asked». F5.1
+визита 1 RESOLVED.
 
 ### 6. Дублирование
 
@@ -173,7 +150,7 @@ task». Описание kit.yaml и README согласованы с ним.
 
 ### 12. Безопасность и границы
 
-Запись `link` подчиняется общему правилу SKILL.md:27 (см. F5.1). Связи между проектами
+Запись `link`, и `derived` тоже, подчиняется общему правилу SKILL.md:27. Связи между проектами
 разрешены по решению человека. Ошибки аргументов (`--type` с URL, `--title` с ключом,
 связь задачи с самой собой) дают выход 2 до любого запроса.
 
@@ -182,7 +159,7 @@ task». Описание kit.yaml и README согласованы с ним.
 | Известная дыра | Находка, или как кит её закрывает |
 |---|---|
 | 1. Красная проверка возвращается без учёта среды | Не применимо: потоков нет. Сообщения `uv`/Python SKILL.md по-прежнему отличает от сообщений скрипта |
-| 2. Работа вне потока, слияние без гейта | Не применимо: ролей и потоков нет; `link` — только по просьбе роли, шага или человека (SKILL.md:27), см. F5.1 |
+| 2. Работа вне потока, слияние без гейта | Не применимо: ролей и потоков нет; `link` — только по просьбе роли, шага или человека (SKILL.md:27), `derived` тоже (R11) |
 | 3. Путь вне worktree запуска | Нет: `${SKILL_DIR}/jira.py`; `.lado/tracker.yaml` ищется от текущей папки |
 | 4. Вердикт без порога серьёзности | Не применимо: ревьюеров нет |
 | 5. Зависимый навык пишет или спрашивает, где роли нельзя | Не применимо: зависимых навыков нет |
@@ -194,12 +171,20 @@ task». Описание kit.yaml и README согласованы с ним.
 Ничего. Задача–задача `link` прослежена в R3, R6 (`link_types`), R7 (`POST issueLink`),
 R8, R10 (проверка направления) и R11; журнал раздела 5 имеет строку 1.4.0. Бюджет
 зелёный; раздел 4 «Output of the kit-budget script on the built kit (1.4.0)» совпадает с
-выводом выше. Скелетов потоков нет: потоков нет (R2). Чтение KEY2 после 404 не названо в
-R8 — см. F3.2.
+выводом выше. Скелетов потоков нет: потоков нет (R2). Чтение KEY2 после 404 названо в R8
+(`BLUEPRINT.md:138-140`).
 
 ## Прежние находки
 
-В отчёте 1.3.0 открытых находок не было.
+Визит 1 (отчёт 14dd988, коммит 0c5a8a6):
+
+| Находка | Статус | Доказательство |
+|---|---|---|
+| F3.1 [medium] `jira.py:1007` любая ошибка чтения KEY2 → 7 | RESOLVED | `jira.py:1007-1009` «except Failure as missing: / if missing.code != NOT_FOUND: / raise»; проба визита 1 (KEY2 → «Jira did not answer») теперь `exit 9 Jira did not answer in 30 seconds`; тест 503 → 12, 401 → 5; `Ran 108 tests … OK` |
+| F3.2 [low] R8 без чтения KEY2 | RESOLVED | `BLUEPRINT.md:138-140` «after a 404 the script reads KEY2 once: KEY2 there is exit 11, KEY2 missing exit 7, any other failure of that read keeps its own code»; строка 1.4.0 журнала дополнена |
+| F5.1 [medium] SKILL.md:51 правило `derived` как приказ | RESOLVED | SKILL.md:51 «To link a task to the task it was created from: …»; `BLUEPRINT.md:179-180` «under the same rule: only when asked» — по решению человека «F5.1 - только по просьбе» |
+
+В отчёте 1.3.0 открытых находок не было. Пункты плана:
 
 | Пункт плана | Статус | Доказательство |
 |---|---|---|
@@ -207,10 +192,10 @@ R8 — см. F3.2.
 | Слова → имена, `link_types`, неизвестное слово — 11 со списком | RESOLVED | `LINK_WORDS`, `CONFIG_MAPS = (…, "link_types")`, «link type '%s' is unknown; use one of: %s» |
 | «Already linked» — один GET, тот же тип, направление; любое для симметричного | RESOLVED | `_link_task`: `if kind.get("inward") == kind.get("outward"): ends.append("inwardIssue")`; trial строки 4, 6 |
 | `POST issueLink` с `type: {name}`, без обратного чтения | RESOLVED | `body = {"type": {"name": name}, "inwardIssue": {"key": key}, …}` |
-| 401 без заголовка и 403 → 6; 404 → 7; 400 → 11 с `link_types` | RESOLVED, с отступлением | 404 при существующей KEY2 → 11 (проверка на Jira, build-report); см. F3.1 и F3.2 |
+| 401 без заголовка и 403 → 6; 404 → 7; 400 → 11 с `link_types` | RESOLVED, с отступлением | 404 при существующей KEY2 → 11 (проверка на Jira, build-report), описано в R8; F3.1, F3.2 RESOLVED |
 | `get`: строка `Links:` | RESOLVED | `_print_issue`: `print("Links: " + "; ".join(links))`; trial строки 2, 3 |
 | Направление проверено на тестовой Jira до теста | RESOLVED | trial-1.4.0: «`inwardIssue` = KEY, `outwardIssue` = KEY2 gives "KEY blocks KEY2"» |
-| Тесты | RESOLVED | `Ran 107 tests … OK` |
+| Тесты | RESOLVED | `Ran 108 tests … OK` |
 | SKILL.md, README, kit.yaml 1.4.0 | RESOLVED | строка действий, пункт **link**, правило `derived`, пример `link_types`, строки 6/7/11; README:5, :72; kit.yaml `version: 1.4.0` |
 
 ## Вырезанные правила
@@ -224,6 +209,10 @@ R8 — см. F3.2.
 | SKILL.md строки кодов 6, 7, 11 | те же строки, только дополнения; правило `assign` в строке 11 на месте |
 | BLUEPRINT R3, R6, R7, R8, R10, R11, раздел 4 | те же требования, только дополнения |
 | jira.py `cmd_link` (тело для URL) | `_link_url`, тот же запрос; `test_link` проходит |
+| (визит 2) SKILL.md:51 «A task created from another task is linked to it» | SKILL.md:51 «To link a task to the task it was created from»; изменено по решению человека (F5.1), «когда» — SKILL.md:27 |
+| (визит 2) BLUEPRINT R11 «A task created from another task is linked to it with» | BLUEPRINT.md:179-180, с «only when asked» |
+| (визит 2) BLUEPRINT R8 и строка журнала 1.4.0 | те же, только дополнения |
+| (визит 2) jira.py `except Failure:` | `jira.py:1007-1011`: правило «нет KEY2 → 7» на месте, сужено до 404 |
 
 Ни одно правило не потеряно.
 
@@ -237,6 +226,4 @@ R8 — см. F3.2.
 
 ## Вопросы к человеку
 
-1. Правило `derived` (F5.1): ставить связь «всегда при создании задачи из другой», без
-   просьбы, или только когда роль, шаг или человек просят? Рекомендую второе — это
-   соответствует общему правилу записи; формулировка в F5.1.
+Нет.
