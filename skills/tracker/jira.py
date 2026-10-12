@@ -998,10 +998,16 @@ def _link_task(jira, key, other, word):
         if (failure.status == 401 and not failure.denied) or failure.code == NO_ACCESS:
             raise Failure(NO_ACCESS, "no permission to link %s and %s (%d)"
                           % (key, other, failure.status))
+        refused = failure.code == REFUSED
         if failure.code == NOT_FOUND:
-            raise Failure(NOT_FOUND, "cannot link %s and %s: a task is missing or not "
-                                     "visible to you (%s)" % (key, other, failure.message))
-        if failure.code == REFUSED:
+            # Jira 8.13 answers an unknown link type with 404 too; KEY was just found.
+            try:
+                jira.call("GET", "issue/" + urllib.parse.quote(other), {"fields": "key"})
+                refused = True
+            except Failure:
+                raise Failure(NOT_FOUND, "cannot link %s and %s: a task is missing or not "
+                                         "visible to you (%s)" % (key, other, failure.message))
+        if refused:
             raise Failure(REFUSED, "Jira refused link type '%s' (%s): if this Jira names "
                                    "it otherwise, the user sets 'link_types.%s' in %s"
                           % (name, failure.message, word, CONFIG_PATH))

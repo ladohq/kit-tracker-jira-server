@@ -849,6 +849,8 @@ class CommandsTest(JiraTestCase):
         self.jira.route("POST", "issueLink", None, status=201)
 
     def test_link_task_relates_by_default(self):
+        # Tried on Jira 8.13.19: inwardIssue TEST-21, outwardIssue TEST-20, type Blocks
+        # shows "TEST-21 blocks TEST-20" (trial-1.4.0).
         self.route_links()
         code, out, err = self.run_jira("link", "TEST-1", "TEST-2")
         self.assertEqual(code, 0, err)
@@ -1135,6 +1137,13 @@ class ErrorsTest(JiraTestCase):
                          "link", "TEST-1", "TEST-2")
         self.jira.route("POST", "issueLink", {"errorMessages": ["No link type"]},
                         status=400)
+        err = self.assertFails(jira.REFUSED, "refused link type 'Blocks'",
+                               "link", "TEST-1", "TEST-2", "--type", "blocks")
+        self.assertIn("link_types.blocks", err)
+        # Jira 8.13 answers an unknown type with 404; the second task is there.
+        self.jira.route("POST", "issueLink", {"errorMessages": [
+            "No issue link type with name 'Blocks' found."]}, status=404)
+        self.jira.route("GET", "issue/TEST-2", {"key": "TEST-2"})
         err = self.assertFails(jira.REFUSED, "refused link type 'Blocks'",
                                "link", "TEST-1", "TEST-2", "--type", "blocks")
         self.assertIn("link_types.blocks", err)
