@@ -1004,7 +1004,9 @@ def _link_task(jira, key, other, word):
             try:
                 jira.call("GET", "issue/" + urllib.parse.quote(other), {"fields": "key"})
                 refused = True
-            except Failure:
+            except Failure as missing:
+                if missing.code != NOT_FOUND:
+                    raise
                 raise Failure(NOT_FOUND, "cannot link %s and %s: a task is missing or not "
                                          "visible to you (%s)" % (key, other, failure.message))
         if refused:

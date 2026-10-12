@@ -48,7 +48,7 @@ kit's roles and steps may allow more.
 
 The `link` URL is the branch's or commit's page on the repository's host; a repository
 with no remote has no such page, so give the branch and the commit hash in a `comment`.
-A task created from another task is linked to it: `link NEW-KEY OLD-KEY --type derived`.
+To link a task to the task it was created from: `link NEW-KEY OLD-KEY --type derived`.
 
 - **search**: `{project}` in the JQL is the project's key, e.g.
   `search 'project = {project} AND assignee = currentUser() AND resolution = Unresolved

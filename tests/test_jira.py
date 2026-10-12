@@ -1148,6 +1148,16 @@ class ErrorsTest(JiraTestCase):
                                "link", "TEST-1", "TEST-2", "--type", "blocks")
         self.assertIn("link_types.blocks", err)
 
+    def test_link_task_failure_reading_the_second_task_after_404(self):
+        # Only a missing KEY2 is exit 7; any other failure of that read keeps its own code.
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": {}})
+        self.jira.route("POST", "issueLink", {"errorMessages": ["Not found"]}, status=404)
+        self.jira.route("GET", "issue/TEST-2", {"errorMessages": ["Down"]}, status=503)
+        self.assertFails(jira.SERVER_ERROR, "Jira failed (503)", "link", "TEST-1", "TEST-2")
+        self.jira.route("GET", "issue/TEST-2", None, status=401)
+        self.assertFails(jira.CREDENTIALS_REFUSED, "stop using Jira",
+                         "link", "TEST-1", "TEST-2")
+
     def test_link_task_from_a_missing_task(self):
         self.assertFails(jira.NOT_FOUND, "task TEST-1 not found", "link", "TEST-1", "TEST-2")
         self.assertEqual(self.sent("POST", "issueLink"), [])
