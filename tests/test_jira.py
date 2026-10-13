@@ -1087,6 +1087,9 @@ class FilesTest(JiraTestCase):
         for status, payload, code, text in [
                 (413, None, jira.REFUSED, "too large (413)"),
                 (404, {"errorMessages": ["too big"]}, jira.REFUSED, "size limit"),
+                # Jira 8.13.19's answer to a file over jira.attachment.size.
+                (404, Raw(b"The field file exceeds its maximum permitted size of "
+                          b"10485760 bytes."), jira.REFUSED, "size limit"),
                 (403, {"errorMessages": ["Attachments are disabled."]}, jira.REFUSED,
                  "attachments are disabled"),
                 (403, {"errorMessages": ["No permission"]}, jira.NO_ACCESS, "no access")]:

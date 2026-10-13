@@ -1185,11 +1185,12 @@ def cmd_attach(jira, args):
                                upload=_multipart(path, name), missing=missing_issue(args.key),
                                sent=None)
         except Failure as failure:
-            if failure.code == NOT_FOUND:
-                # The task was just found: Jira 8 answers a file over its size limit 404.
+            if failure.status == 404:
+                # The task was just found: Jira 8.13 answers a file over its size limit
+                # 404, with a plain-text body (tried on 8.13.19).
                 failure = Failure(REFUSED, "Jira refused %s (404): larger than its "
-                                           "attachment size limit (%s)"
-                                  % (name, failure.message))
+                                           "attachment size limit (jira.attachment.size), "
+                                           "or the task is gone" % name)
             elif failure.code == NO_ACCESS and "disabled" in failure.message.lower():
                 failure = Failure(REFUSED, "attachments are disabled in this Jira: %s"
                                   % failure.message)

@@ -89,6 +89,14 @@ label, link or attach files when their role, their step or the human asks, and e
 description only when the human or their step asks (`skills/tracker/SKILL.md`). A process
 kit says which roles touch the tracker and when, and may allow more.
 
+## Where it was tried
+
+Each release that adds or changes an action is tried on a test Jira Server 8.13.19 before
+release. 1.5.0 (files): `attach` of a PNG and a PDF, `get` with `Files:`, `download` with
+the same bytes back, images and links by `attachment:` in comments and a description
+shown by Jira, names with spaces, Cyrillic, parentheses and `#`, and a file over Jira's
+10 MB limit refused.
+
 ## Development
 
 ```bash

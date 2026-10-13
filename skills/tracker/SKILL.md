@@ -134,7 +134,9 @@ Write each paragraph on one line: Jira shows every line break.
 A task's file is linked as `[text](attachment:<name>)` and shown as an image as
 `![](attachment:<name>)` (Jira's image has no alt text); write the name URL-encoded, as
 `attach` prints it (`attachment:my%20shot.png`), or as it is in angle brackets
-(`(<attachment:my shot.png>)`). A name several files share means the newest of them. In
+(`(<attachment:my shot.png>)`). A name several files share means the newest of them, in
+Jira's own display too: a link follows the name, so after a newer file of that name is
+attached, older links show the newer file; give a version you mean to keep its own name. In
 `edit`, `comment`, `transition --comment` and `attach --comment` a name the task lacks is
 refused before anything is written (exit 11, the task's files listed); with `--wiki` the
 text is neither converted nor checked.
