@@ -541,7 +541,18 @@ def to_wiki(text, names=None):
 
 def text_arg(value, wiki, names=None):
     text = read_text(value)
-    return text if wiki else to_wiki(text, names)
+    if wiki:
+        return text
+    found = []
+    text = to_wiki(text, found)
+    for name in found:
+        if re.search(r"[!|\]]", name):
+            raise Failure(REFUSED, "file name '%s' cannot be linked in Jira's wiki markup "
+                                   "(it has !, | or ]): nothing written; attach the file "
+                                   "under another name and link that" % name)
+    if names is not None:
+        names.extend(found)
+    return text
 
 
 # --- commands --------------------------------------------------------------------------
@@ -1196,9 +1207,14 @@ def cmd_attach(jira, args):
                                   % failure.message)
             if not done and failure.code in (REFUSED, NO_ACCESS):
                 raise failure
-            raise Failure(failure.code, "%s: uploaded %s; not uploaded %s%s: %s" % (
+            # No answer or a 5xx may follow an upload Jira did keep; a 429 runs nothing.
+            unsure = failure.code == UNREACHABLE or (failure.code == SERVER_ERROR
+                                                     and failure.status != 429)
+            rest = [os.path.basename(p) for p in args.files[number + unsure:]]
+            raise Failure(failure.code, "%s: uploaded %s;%s not uploaded %s%s: %s" % (
                 args.key, ", ".join(done) or "none",
-                ", ".join(os.path.basename(p) for p in args.files[number:]),
+                " may have been uploaded %s (check with get before attaching it again);"
+                % name if unsure else "", ", ".join(rest) or "none",
                 "; no comment added" if comment is not None else "", failure.message))
         for item in answer or []:
             print("%s %s %s" % (item.get("id"), item.get("filename"),
@@ -1262,8 +1278,13 @@ def cmd_download(jira, args):
             with open(path, "xb") as handle:
                 handle.write(data)
         except (Failure, OSError) as failure:
-            if getattr(failure, "status", None) == 404:
+            status = getattr(failure, "status", None)
+            if status == 404:
                 failure = Failure(NOT_FOUND, "file %s not found (404)" % item.get("filename"))
+            elif status and 300 <= status < 400:
+                failure = Failure(REFUSED, "Jira answered file %s with a redirect (%d), not "
+                                           "followed: the credentials go only to JIRA_URL; "
+                                           "report it" % (item.get("filename"), status))
             message = getattr(failure, "message", None) or "cannot write: %s" % failure
             raise Failure(getattr(failure, "code", USAGE),
                           "%s: downloaded %s; not downloaded %s: %s" % (

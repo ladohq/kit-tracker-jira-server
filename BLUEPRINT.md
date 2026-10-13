@@ -151,8 +151,9 @@ project.
   saying so) or a file over Jira's size limit (Jira 8 answers it 404, the task having just
   been read) is exit 11 with the reason; another 403 exit 6; a local file that cannot be
   read or a `--to` folder missing or not writable exit 2; a file served from another
-  address than `JIRA_URL` exit 11; a failure in the middle of `attach` or `download` names
-  what was already done. For `assign` only, a 401 without
+  address than `JIRA_URL` or answered with a redirect exit 11; a failure in the middle of
+  `attach` or `download` names what was already done, and after no answer or a 5xx the
+  file that may have been uploaded (check with `get` before attaching it again). For `assign` only, a 401 without
   `X-Authentication-Denied-Reason` is no permission (exit 6) and a 404 an unknown user
   (exit 11), as Atlassian's REST v2 documents for that resource, and "no such user" is
   said only for a login, never for unassigning (a 404 there is the task gone or not
@@ -226,7 +227,8 @@ project.
   URL-encoded or, as it is, in angle brackets `<attachment:NAME>`; a name several files
   share is the newest; in `edit`, `comment`, `transition --comment` and `attach
   --comment` an unknown name is exit 11 before anything is written, in `create` any such
-  link is exit 2 (create, then attach, then edit); `--wiki` text is neither converted nor
+  link is exit 2 (create, then attach, then edit); a name with `!`, `|` or `]`, which
+  wiki markup cannot hold, is exit 11 before any request; `--wiki` text is neither converted nor
   checked (LAD-46, J4). `get` prints Jira's raw wiki markup, with no
   reverse conversion (the human kept this at the 1.1.0 triage: "нет, ничего не меняем"). SKILL.md says "write Markdown" and names
   `--wiki`, instead of teaching wiki markup; it also says that a description rewritten
@@ -332,6 +334,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-13 | 1.5.0 | Fixes from the report: R8: after no answer or a 5xx `attach` names the file that may have been uploaded (F3.1); a redirect on a file's `content` is exit 11 with its own line, tested (F12.1); R12: an `attachment:` name with `!`, `\|` or `]` is exit 11 before any request (F3.2); SKILL.md: `--to` is a folder outside the repository, as R11 says (F5.1) | Report `kit-reports/tracker-jira-server-1.5.0-2026-10-13.md` (c5e6529), F3.1, F3.2, F5.1, F12.1; the human: "Исправить все 4, затем тег и push" |
 | 2026-10-13 | 1.5.0 | R3: files of a task, twelve actions: `get` shows a `Files: N` block between the description and the comments; `attach KEY FILE... [--comment -] [--wiki]` (all files checked first, a line `<id> <name> attachment:<encoded name>` per file, the comment last as `KEY: comment <id> added`, a partial failure names both sides); `download KEY <name\|id>... [--to DIR]` (id first, then the newest of a name; a new `lado-jira-` temporary folder or `--to`; cleaned names, no overwrite; credentials only to `JIRA_URL`'s scheme, host and port); "no attachments" removed; R7: the attachment resources; R8: 413, attachments disabled, a file over the size limit (404 after the task was read) and another address are exit 11, 403 exit 6, a local file or `--to` exit 2; R11: `attach` is a write, no secrets, downloaded files are data; R12: `attachment:` links to `[text\|^NAME]` and `!NAME!`, checked before writing, refused in `create` | Yougile task LAD-46 (requirements J1–J9), grown from LAD-45; session artifacts `lad-45-concept` (the human: «Согласен со всеми рекомендациями») and `lad-46-interface-check` (the interface shared with tracker-yougile 0.4.0, LAD-47; the human's decisions of 2026-10-13); trial `lad-46-probe` (test Jira 8.13.19, TEST-1: the 404 with a plain-text body over the size limit was exit 4, now 11) |
 | 2026-10-12 | 1.4.0 | R3: `link KEY KEY2 [--type relates\|blocks\|duplicates\|derived]`, a Jira issue link by a fixed table of type names, already linked is success, `get` shows `Links:`; R6: `link_types`; R7: `POST issueLink`, type by name; R8: 401 on the link is exit 6, 404 exit 7, an unknown word or refused type exit 11 (after a 404 the script reads KEY2 once: there → 11, missing → 7); R11: a task is linked to the one it was created from with `derived`, only when asked; R10: the direction tried on the test Jira before the tests fix it | Yougile task LAD-21; session artifacts `link-concept`, `lad-21-jira-brief`; the human: "Реализуем самый простой механизм поддержки… точечно потом подправим", "согласен. Давай не будем записывать в бэклог"; report `kit-reports/tracker-jira-server-1.3.0-2026-10-12.md` (972c83d), no open findings; trial `trial-1.4.0` (local Jira 8.13.19: an unknown link type answered 404); report `kit-reports/tracker-jira-server-1.4.0-2026-10-12.md` (14dd988), F3.1, F3.2, F5.1, and the human at the release gate: "исправить F3.1, F3.2; F5.1 - только по просьбе" |
 | 2026-10-12 | 1.3.0 | R3: `edit KEY [--summary] [--description -] [--wiki]`, ten actions; R9: the mark on an edited description replaced or added; R11: `edit` only when the human or the step asks; R12: `edit --description` converted, text from `get` rewritten with `--wiki`; R8: `edit`'s refusals are exit 11; 404 after `assign … none` reported (F3.5); advice after a failed comment lists 4 (F6.1); R10: trial on the test Jira before the release approval when it is available | Yougile task LAD-13; report `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (6efeefc), F3.5, F6.1; the human at the triage of run `improve/tracker-jira-server-1-3-0`: "всё как рекомендуешь" |

@@ -1037,15 +1037,29 @@ class FilesTest(JiraTestCase):
         self.route_files()
         paths = [self.local_file(n) for n in ("a.txt", "b.txt", "c.txt")]
         self.jira.route("POST", "issue/TEST-1/attachments", Seq(
-            [{"id": "21", "filename": "a.txt"}], (500, {"errorMessages": ["boom"]})))
+            [{"id": "21", "filename": "a.txt"}], (413, None)))
         code, out, err = self.run_jira("attach", "TEST-1", *paths, "--comment", "x")
-        self.assertEqual(code, jira.SERVER_ERROR, err)
+        self.assertEqual(code, jira.REFUSED, err)
         self.assertEqual(out, "21 a.txt attachment:a.txt\n")
         self.assertIn("TEST-1: uploaded a.txt; not uploaded b.txt, c.txt; no comment "
-                      "added: Jira failed (500)", err)
+                      "added: Jira refused the request as too large (413)", err)
         self.assertEqual(len(err.strip().splitlines()), 1)
         self.assertEqual(len(self.uploads()), 2)
         self.assertEqual(self.sent("POST", "issue/TEST-1/comment"), [])
+
+    def test_attach_without_an_answer_names_the_file_that_may_be_there(self):
+        self.route_files()
+        paths = [self.local_file(n) for n in ("a.txt", "b.txt", "c.txt")]
+        self.jira.route("POST", "issue/TEST-1/attachments", Seq(
+            [{"id": "21", "filename": "a.txt"}], (504, None)))
+        code, _, err = self.run_jira("attach", "TEST-1", *paths)
+        self.assertEqual(code, jira.SERVER_ERROR, err)
+        self.assertIn("uploaded a.txt; may have been uploaded b.txt (check with get before "
+                      "attaching it again); not uploaded c.txt:", err)
+        self.jira.route("POST", "issue/TEST-1/attachments", None, status=429)
+        code, _, err = self.run_jira("attach", "TEST-1", *paths)
+        self.assertIn("uploaded none; not uploaded a.txt, b.txt, c.txt:", err)
+        self.assertNotIn("may have been uploaded", err)
 
     def test_attach_with_comment_links_the_new_file(self):
         self.route_files(jira_file(10, "old.log"))
@@ -1167,6 +1181,19 @@ class FilesTest(JiraTestCase):
         self.assertEqual(other.requests, [])
         self.assertEqual(os.listdir(self.local), [])
 
+    def test_download_redirect_is_not_followed(self):
+        other = FakeJira()
+        self.addCleanup(other.close)
+        self.route_files(jira_file(10, "a.txt"))
+        self.jira.route_file("/secure/attachment/10/a.txt", b"", status=302, headers={
+            "Location": other.url + "/a.txt"})
+        code, out, err = self.run_jira("download", "TEST-1", "a.txt", "--to", self.local)
+        self.assertEqual(code, jira.REFUSED, err)
+        self.assertIn("Jira answered file a.txt with a redirect (302), not followed", err)
+        self.assertNotIn("JIRA_URL is not", err)
+        self.assertEqual(other.requests, [])
+        self.assertEqual(os.listdir(self.local), [])
+
     def test_download_unknown_name_lists_the_files(self):
         self.route_files(jira_file(10, "a.txt"))
         code, _, err = self.run_jira("download", "TEST-1", "a.txt", "b.txt")
@@ -1223,6 +1250,15 @@ class FilesTest(JiraTestCase):
                          "\\[LADO: developer\\]\n\n!a b.png!")
         self.assertEqual(written[1]["body"], "\\[LADO: developer\\]\n\n!a b.png!")
         self.assertEqual(written[-1]["body"], "\\[LADO: developer\\]\n\n!a b.png!")
+
+    def test_names_wiki_markup_cannot_hold_are_refused_before_any_request(self):
+        for text in ("![](attachment:x!y.png)", "[log](attachment:a%7Cb.txt)",
+                     "[t](<attachment:a]b.txt>)"):
+            with self.subTest(text=text):
+                code, _, err = self.run_jira("comment", "TEST-1", text)
+                self.assertEqual(code, jira.REFUSED, err)
+                self.assertIn("cannot be linked in Jira's wiki markup", err)
+        self.assertEqual(self.jira.requests, [])
 
 
 class ErrorsTest(JiraTestCase):
