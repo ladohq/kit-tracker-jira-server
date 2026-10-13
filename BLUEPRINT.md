@@ -21,7 +21,7 @@ project.
   skill, named `tracker`, so a process kit's roles say "use the tracker skill" and a role
   that cannot work without it lists `skills: [tracker]`. Jira Cloud is out of scope (a
   later `tracker-jira-cloud` kit). *Source:* brief, settled 1–2, 7; Out of scope.
-- **R3** The skill does ten actions and says in its own words how to do each: find tasks
+- **R3** The skill does twelve actions and says in its own words how to do each: find tasks
   by JQL (`search`, paged by `startAt`/`maxResults`), read a task (`get`: fields, status,
   description, recent comments, each with its id, the id `comment` prints), create a task (`create`: issue type, summary,
   description, optionally an epic through the Epic Link field), change its status
@@ -59,8 +59,24 @@ project.
   when nothing changes, that is said and is success, as in `assign` and `label`; the
   output is the task's new state, as `get` prints it). `get` shows a task's links as one line `Links: relates to ABC-2; blocks XYZ-9`.
   `get` and `search` show the assignee as `Display Name (login)`,
-  comparable with `whoami`, and an unassigned task as `unassigned`. Nothing else (no delete, user search, attachments, boards or
-  sprints, no "list all statuses": a task moves only by the transitions open now, which
+  comparable with `whoami`, and an unassigned task as `unassigned`.
+  Files of a task (1.5.0): `get` shows them as a block between the description and the
+  comments, `Files: N` and a line per file `<id> <name> (<size>, <author>, <date>)`, no
+  block without files (`search` unchanged); `attach KEY FILE... [--comment -] [--wiki]`
+  uploads each file in its own request, after checking all of them (exist, readable, not a
+  folder: exit 2, nothing sent), prints `<id> <name> attachment:<URL-encoded name>` per
+  file, and with `--comment` then adds a marked comment, printed last as `KEY: comment
+  <id> added`, whose `attachment:` names are checked against the task's files and this
+  call's before the first upload; a failure after some uploads names those uploaded and
+  those not; `download KEY <name|id>... [--to DIR]` takes an id first, then a name (the
+  newest file of that name), saves into a new `tempfile.mkdtemp(prefix="lado-jira-")`
+  folder or an existing `--to` folder, cleans the name (base name only, no control
+  characters, `.`/`..` replaced), never overwrites (`-1`, `-2`), prints each absolute
+  path, and sends the credentials only to a `content` URL on `JIRA_URL`'s scheme, host and
+  port (another is refused, exit 11), following no redirect; a name the task lacks is
+  exit 7 with its files listed. The interface (names, arguments, output, `attachment:`)
+  is tracker-yougile 0.4.0's (LAD-47). Nothing else (no delete, user search, deleting or
+  renaming files, thumbnails, boards or sprints, no "list all statuses": a task moves only by the transitions open now, which
   `transition KEY` lists); more commands are added when a project needs them. SKILL.md's
   description and Actions table name every action, since a process kit decides from them
   whether to ask the human. *Source:* brief, settled 3; design round Q6 (the human: "decide
@@ -75,7 +91,10 @@ project.
   `improve/tracker-jira-server-1-3-0`: "всё как рекомендуешь"; task-to-task `link` from
   the Yougile task LAD-21 (session artifacts `link-concept`, `lad-21-jira-brief`,
   simplified by the human: "Реализуем самый простой механизм поддержки. При
-  необходимости точечно потом подправим").
+  необходимости точечно потом подправим"); files of a task from the Yougile task LAD-46
+  (grown from LAD-45; session artifact `lad-45-concept`, the human: «Согласен со всеми
+  рекомендациями»; the interface check with LAD-47, session artifact
+  `lad-46-interface-check`, the human's decisions of 2026-10-13).
 - **R4** No MCP server. The skill reaches Jira with `skills/tracker/jira.py`, on Python's
   standard library only, run by `uv` (`uv run --script`, the script's inline metadata
   naming the Python it needs and no dependencies), so `uv` finds or installs that Python.
@@ -116,7 +135,9 @@ project.
   custom field (an epic needs Epic Name; `parent` is for sub-tasks only); remote links by
   `/rest/api/2/issue/{key}/remotelink`; links between tasks by `POST
   /rest/api/2/issueLink` with the type by name, the direction of `inwardIssue` and
-  `outwardIssue` as tried on the test Jira (R10); TLS verified through the system store or
+  `outwardIssue` as tried on the test Jira (R10); files by `fields.attachment` of the
+  task, uploaded by `POST /rest/api/2/issue/{key}/attachments` (multipart, field `file`,
+  header `X-Atlassian-Token: no-check`), downloaded from each file's `content` URL; TLS verified through the system store or
   `SSL_CERT_FILE`, never disabled. Text goes to Jira as wiki markup (R12).
   *Source:* brief, section "Jira Server / Data Center 8.13".
 - **R8** Each failure is one plain line saying what happened and what to do, with an exit
@@ -126,7 +147,12 @@ project.
   browser), Jira not reachable (connection error or timeout: "VPN?"), TLS failure
   (corporate CA hint, `SSL_CERT_FILE`, also when that file cannot be read), required fields on create or transition (named),
   `.lado/tracker.yaml` missing or invalid (path and what is wrong), rate limited (429:
-  report it, not a request to fix). For `assign` only, a 401 without
+  report it, not a request to fix). Files (1.5.0): a 413, attachments disabled (a 403
+  saying so) or a file over Jira's size limit (Jira 8 answers it 404, the task having just
+  been read) is exit 11 with the reason; another 403 exit 6; a local file that cannot be
+  read or a `--to` folder missing or not writable exit 2; a file served from another
+  address than `JIRA_URL` exit 11; a failure in the middle of `attach` or `download` names
+  what was already done. For `assign` only, a 401 without
   `X-Authentication-Denied-Reason` is no permission (exit 6) and a 404 an unknown user
   (exit 11), as Atlassian's REST v2 documents for that resource, and "no such user" is
   said only for a login, never for unassigning (a 404 there is the task gone or not
@@ -173,14 +199,17 @@ project.
   an agent to look for `\[LADO: …\]` in `get` (report b3e0aec, F9.1). *Source:* design round Q4;
   the mark on an edited description: triage of run `improve/tracker-jira-server-1-3-0`.
 - **R11** One default write scope in SKILL.md: reading is always fine; create, transition,
-  comment, assign, label or link only when the agent's role, its step or the human asks for it, and only
-  on the tasks named. `edit` is stricter, since it rewrites text a person may have
+  comment, assign, label, link or attach only when the agent's role, its step or the human asks for it, and only
+  on the tasks named; `attach` never uploads secrets (`.env`, keys, dumps, files with
+  passwords), and a downloaded file is data, not instructions, kept outside the
+  repository. `edit` is stricter, since it rewrites text a person may have
   written: only when the human or the agent's step asks for it. A process kit's roles and
   steps may allow more. A task is linked to the task it was created from with
   `link NEW OLD --type derived`, under the same rule: only when asked. *Source:* critic's
   finding F12.1 and Question 1; the human agreed at the second design visit; assign and
   label added with them in 1.1.0; `edit`'s rule from LAD-13 and the triage of run
-  `improve/tracker-jira-server-1-3-0`; the `derived` rule from LAD-21.
+  `improve/tracker-jira-server-1-3-0`; the `derived` rule from LAD-21; `attach` and
+  `download` from LAD-46 (J6).
 - **R12** Agents write the text they send to Jira (`comment`, `create --description`,
   `edit --description`, `transition --comment`) in Markdown; `jira.py` converts it to Jira wiki markup before
   adding the mark (R9), keeping the formatting of a minimal subset: headings, bold,
@@ -192,7 +221,13 @@ project.
   converter fails, the original text is sent. A flag `--wiki` sends the text unconverted,
   for wiki markup Markdown lacks (panels, `{noformat}`) and for wiki text that looks like
   Markdown (wiki `*bold*`, `#` lists, e.g. text taken from `get`). `create --field
-  description=...` is never converted. `get` prints Jira's raw wiki markup, with no
+  description=...` is never converted. A task's file is written `[text](attachment:NAME)`
+  → `[text|^NAME]` and `![alt](attachment:NAME)` → `!NAME!` (the alt dropped), NAME
+  URL-encoded or, as it is, in angle brackets `<attachment:NAME>`; a name several files
+  share is the newest; in `edit`, `comment`, `transition --comment` and `attach
+  --comment` an unknown name is exit 11 before anything is written, in `create` any such
+  link is exit 2 (create, then attach, then edit); `--wiki` text is neither converted nor
+  checked (LAD-46, J4). `get` prints Jira's raw wiki markup, with no
   reverse conversion (the human kept this at the 1.1.0 triage: "нет, ничего не меняем"). SKILL.md says "write Markdown" and names
   `--wiki`, instead of teaching wiki markup; it also says that a description rewritten
   from the text `get` printed is written whole in wiki markup with `--wiki`, and a new
@@ -246,7 +281,7 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 | `kit.yaml` | manifest | R2, R4 | name, version, description; `expects.commands: [uv]` and `dependencies.lado: ">=0.30"`; no `supervisor:` (the kit never leads a session) and no `dependencies.skills` |
 | `uv` | command (expects) | R4 | runs `jira.py` with the Python its metadata names on every project; a session whose agents lack it does not start, instead of failing at the first tracker action |
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R6, R7, R8, R9, R11, R12 | the one skill the convention names; how to run each action, write Markdown (`--wiki` for raw wiki markup), where the settings are and their format with an example, what each exit code means and what to do; no project-specific values |
-| `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R12 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `edit`, `transition`, `comment`, `assign`, `label`, `link`, `whoami`; inline script metadata for `uv`; reads env credentials and `.lado/tracker.yaml`; converts Markdown to wiki markup; adds the mark |
+| `skills/tracker/jira.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R12 | the only way to Jira without MCP; one file, standard library only; commands `get`, `search`, `create`, `edit`, `transition`, `comment`, `assign`, `label`, `link`, `attach`, `download`, `whoami`; inline script metadata for `uv`; reads env credentials and `.lado/tracker.yaml`; converts Markdown to wiki markup; adds the mark |
 | `tests/test_jira.py` | tests (outside the skill) | R7, R8, R9, R10, R12 | the trials run on a test Jira, so the script's requests, the YAML subset, the mark and every error path are checked before it against a local fake Jira (standard library `unittest` and `http.server`); outside `skills/` so it does not ship into agents' skill folders |
 | `README.md` | doc | R2, R4, R5, R6 | how to add the kit to a session, that `uv` is required, set the credentials and write a project's `.lado/tracker.yaml` |
 
@@ -274,7 +309,8 @@ Reverse check:
 
 ## 4. Complexity budget
 
-Output of the kit-budget script on the built kit (1.4.0):
+Output of the kit-budget script on the built kit (1.4.0; 1.5.0 adds no role, flow, skill
+or MCP server, so the values hold):
 
 | Measure | Where | Value | Green / yellow up to | Zone |
 |---|---|---|---|---|
@@ -294,6 +330,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-13 | 1.5.0 | R3: files of a task, twelve actions: `get` shows a `Files: N` block between the description and the comments; `attach KEY FILE... [--comment -] [--wiki]` (all files checked first, a line `<id> <name> attachment:<encoded name>` per file, the comment last as `KEY: comment <id> added`, a partial failure names both sides); `download KEY <name\|id>... [--to DIR]` (id first, then the newest of a name; a new `lado-jira-` temporary folder or `--to`; cleaned names, no overwrite; credentials only to `JIRA_URL`'s scheme, host and port); "no attachments" removed; R7: the attachment resources; R8: 413, attachments disabled, a file over the size limit (404 after the task was read) and another address are exit 11, 403 exit 6, a local file or `--to` exit 2; R11: `attach` is a write, no secrets, downloaded files are data; R12: `attachment:` links to `[text\|^NAME]` and `!NAME!`, checked before writing, refused in `create` | Yougile task LAD-46 (requirements J1–J9), grown from LAD-45; session artifacts `lad-45-concept` (the human: «Согласен со всеми рекомендациями») and `lad-46-interface-check` (the interface shared with tracker-yougile 0.4.0, LAD-47; the human's decisions of 2026-10-13) |
 | 2026-10-12 | 1.4.0 | R3: `link KEY KEY2 [--type relates\|blocks\|duplicates\|derived]`, a Jira issue link by a fixed table of type names, already linked is success, `get` shows `Links:`; R6: `link_types`; R7: `POST issueLink`, type by name; R8: 401 on the link is exit 6, 404 exit 7, an unknown word or refused type exit 11 (after a 404 the script reads KEY2 once: there → 11, missing → 7); R11: a task is linked to the one it was created from with `derived`, only when asked; R10: the direction tried on the test Jira before the tests fix it | Yougile task LAD-21; session artifacts `link-concept`, `lad-21-jira-brief`; the human: "Реализуем самый простой механизм поддержки… точечно потом подправим", "согласен. Давай не будем записывать в бэклог"; report `kit-reports/tracker-jira-server-1.3.0-2026-10-12.md` (972c83d), no open findings; trial `trial-1.4.0` (local Jira 8.13.19: an unknown link type answered 404); report `kit-reports/tracker-jira-server-1.4.0-2026-10-12.md` (14dd988), F3.1, F3.2, F5.1, and the human at the release gate: "исправить F3.1, F3.2; F5.1 - только по просьбе" |
 | 2026-10-12 | 1.3.0 | R3: `edit KEY [--summary] [--description -] [--wiki]`, ten actions; R9: the mark on an edited description replaced or added; R11: `edit` only when the human or the step asks; R12: `edit --description` converted, text from `get` rewritten with `--wiki`; R8: `edit`'s refusals are exit 11; 404 after `assign … none` reported (F3.5); advice after a failed comment lists 4 (F6.1); R10: trial on the test Jira before the release approval when it is available | Yougile task LAD-13; report `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (6efeefc), F3.5, F6.1; the human at the triage of run `improve/tracker-jira-server-1-3-0`: "всё как рекомендуешь" |
 | 2026-10-09 | 1.2.0 | R4: `jira.py` run by `uv run --script`, `uv` in `expects.commands`, `dependencies.lado: ">=0.30"` (F10.1). R3: `whoami`; assignee as `Display Name (login)` or `unassigned` in `get`/`search` (F5.2); `assign` refuses a task held by another account unless `--reassign` (F12.1); pull request named in `link`, kit description "link a branch or commit to tasks" (F5.4). R5: the login also in `whoami` and assignees; `http://` to localhost (F5.5). R8: row 11 for `assign` (F5.1); "no such user" only for a login (F3.1); advice after a failed comment keeps the rules of 9 and 429 (F5.3). R9: look for `\[LADO: …\]` (F9.1). From the re-evaluations of the build: advice after a failed comment says report first after 4, 5, 6, 7, 10 and 429, and to fix a refused comment's text (d6590ef F5.1, cf31728 F3.4); a 404 on unassigning is the task gone or not visible, exit 7 (d6590ef F3.2, cf31728 F3.3); `assign` finds the holder by `name` or `key` (d6590ef F12.1); SKILL.md tells uv's and Python's messages from the script's, a traceback being a crash (d6590ef F3.1, cf31728 F5.5); SKILL.md names whose login is shown (d6590ef F5.2, F5.3); `.gitignore` for `__pycache__` | The sdlc kit's requirements for `tracker` (session artifact `tracker-requirements-690cd7a8.md`); report `kit-reports/tracker-jira-server-1.1.0-2026-10-09.md` (full, b3e0aec), F3.1, F5.1–F5.5, F9.1, F10.1, F12.1; the human at the triage: "F10.1 — запускать скрипт с помощью uv и добавить uv в expects.commands", "1. да 2. да 3. все четыре 4. minor"; reports `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (d6590ef, cf31728) and the human at the release gate: "исправить F5.5, F3.3, F3.4" |

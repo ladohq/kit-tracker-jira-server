@@ -5,10 +5,10 @@
 # ///
 """Jira Server / Data Center 8.4 or newer from the command line: REST API v2, Basic auth.
 
-Commands: get, search, create, edit, transition, comment, assign, label, link, whoami (run
-with --help). Credentials come from JIRA_URL, JIRA_USER and JIRA_PASSWORD; the password and
-JIRA_URL are never printed, the login only as an account Jira shows anyway: an assignee,
-or whoami's answer.
+Commands: get, search, create, edit, transition, comment, assign, label, link, attach,
+download, whoami (run with --help). Credentials come from JIRA_URL, JIRA_USER and
+JIRA_PASSWORD; the password and JIRA_URL are never printed, the login only as an account
+Jira shows anyway: an assignee, or whoami's answer.
 Text sent to Jira is Markdown, converted to Jira wiki markup (--wiki sends it as it is).
 Project settings come from .lado/tracker.yaml, found from the current directory up to
 the repository root. Python standard library only, run by `uv run --script`.
@@ -23,6 +23,7 @@ import re
 import socket
 import ssl
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -59,7 +60,7 @@ CONFIG_LISTS = ("labels",)
 CONFIG_KEYS = ("project",) + CONFIG_MAPS + CONFIG_LISTS
 GET_FIELDS = ["summary", "status", "issuetype", "priority", "assignee", "reporter",
               "labels", "created", "updated", "parent", "description", "comment",
-              "issuelinks"]
+              "issuelinks", "attachment"]
 # A link word, meaning "KEY <word> KEY2": the server's link type name (link_types may
 # replace it) and how the script says it.
 LINK_WORDS = {"relates": ("Relates", "relates to"), "blocks": ("Blocks", "blocks"),
@@ -276,21 +277,50 @@ class Jira:
         self.opener = urllib.request.build_opener(
             _NoRedirect, urllib.request.HTTPSHandler(context=context))
 
-    def call(self, method, path, query=None, body=None, missing=None, sent=()):
+    def call(self, method, path, query=None, body=None, missing=None, sent=(),
+             upload=None):
         """`sent`: the fields the request sets, to tell refused values from missing ones;
-        None for a request that takes no other fields, whose field errors are refusals."""
+        None for a request that takes no other fields, whose field errors are refusals.
+        `upload`: (data, content type) of a multipart body, sent instead of JSON."""
         url = self.base + "/rest/api/2/" + path
         if query:
             url += "?" + urllib.parse.urlencode(query)
-        data = json.dumps(body).encode("utf-8") if body is not None else None
+        headers = {"Accept": "application/json"}
+        data = None
+        if upload:
+            data, headers["Content-Type"] = upload
+            headers["X-Atlassian-Token"] = "no-check"  # else Jira refuses it as XSRF
+        elif body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        raw = self.send(method, url, data, headers, missing, sent)
+        if not raw:
+            return None
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except ValueError:
+            raise Failure(SETUP, NOT_JIRA)
+
+    def same_server(self, url):
+        """Whether url is on JIRA_URL's scheme, host and port: only there go credentials."""
+        ours, theirs = urllib.parse.urlsplit(self.base), urllib.parse.urlsplit(url)
+        ports = {"http": 80, "https": 443}
+        try:
+            return (theirs.scheme == ours.scheme and theirs.hostname == ours.hostname
+                    and (theirs.port or ports.get(theirs.scheme))
+                    == (ours.port or ports.get(ours.scheme)))
+        except ValueError:
+            return False
+
+    def send(self, method, url, data=None, headers=None, missing=None, sent=()):
+        """The body of the answer, as bytes."""
         request = urllib.request.Request(url, data=data, method=method)
         request.add_header("Authorization", self.auth)
-        request.add_header("Accept", "application/json")
-        if data is not None:
-            request.add_header("Content-Type", "application/json")
+        for name, value in (headers or {}).items():
+            request.add_header(name, value)
         try:
             with self.opener.open(request, timeout=TIMEOUT) as response:
-                raw = response.read()
+                return response.read()
         except urllib.error.HTTPError as error:
             failure = self._http_failure(error, method, missing, sent)
             failure.status = error.code
@@ -301,12 +331,6 @@ class Jira:
         except (socket.timeout, TimeoutError, ConnectionError, ssl.SSLError,
                 http.client.HTTPException) as error:
             raise self._network_failure(error, method)
-        if not raw:
-            return None
-        try:
-            return json.loads(raw.decode("utf-8"))
-        except ValueError:
-            raise Failure(SETUP, NOT_JIRA)
 
     @staticmethod
     def _network_failure(reason, method):
@@ -356,6 +380,8 @@ class Jira:
             return Failure(NO_ACCESS, "no access (403)%s" % detail)
         if code == 404:
             return Failure(NOT_FOUND, missing or "not found (404)%s" % detail)
+        if code == 413:
+            return Failure(REFUSED, "Jira refused the request as too large (413)%s" % detail)
         if code == 429:
             # Rate limiting refuses the request before it runs, so nothing was applied.
             return Failure(SERVER_ERROR, "Jira is rate limiting requests (429): report it, "
@@ -393,13 +419,26 @@ CODE_SYNONYMS = {"shell": "bash", "console": "bash", "zsh": "bash", "ts": "javas
                  "typescript": "javascript"}
 ITALIC = re.compile(r"(?<![\w*])\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?![\w*])")
 SLOT = re.compile("\x00(\\d+)\x00")
+# A link or image to a file of the task: attachment:NAME, the name URL-encoded
+# (attachment:my%20file.png), or <attachment:my file.png> as it is.
+ATTACHMENT = re.compile(r"(!?)\[([^\]\n]*)\]\((?:<attachment:([^<>\n]+)>"
+                        r"|attachment:((?:[^()\s]|\([^()\s]*\))+))\)")
 CODE_ESCAPE = re.compile(r"([*_\-+^~{}\[\]|])")
 
 
-def _inline(text):
+def _attachment(match, names):
+    name = match.group(3) or urllib.parse.unquote(match.group(4))
+    names.append(name)
+    if match.group(1):
+        return "!%s!" % name  # Jira's image markup has no alt text
+    return "[%s|^%s]" % (_inline(match.group(2)) if match.group(2) else name, name)
+
+
+def _inline(text, names=None):
     # Code spans and link targets are set aside first, so no markup is read inside them;
     # Jira reads markup inside {{...}}, so its wiki characters are escaped there.
     slots = []
+    names = [] if names is None else names
 
     def keep(value):
         slots.append(value)
@@ -407,6 +446,7 @@ def _inline(text):
 
     text = CODE_SPAN.sub(lambda m: keep(
         "{{%s}}" % CODE_ESCAPE.sub(r"\\\1", m.group(2).strip())), text)
+    text = ATTACHMENT.sub(lambda m: keep(_attachment(m, names)), text)
     text = LINK.sub(lambda m: "[%s|%s]" % (m.group(1), keep(m.group(2))), text)
     text = BOLD.sub(lambda m: "\x01%s\x01" % (m.group(1) or m.group(2)), text)
     text = ITALIC.sub(r"_\1_", text).replace("\x01", "*")
@@ -435,7 +475,7 @@ def _same_list(lists, match):
     return indent > lists[-1][0] or levels.get(indent, kind) == kind
 
 
-def _wiki(text):
+def _wiki(text, names):
     out = []
     lists = []  # (indent, "*" or "#") of the open list levels
     fence = None
@@ -470,32 +510,38 @@ def _wiki(text):
                 lists[-1] = (indent, kind)
             else:
                 lists.append((indent, kind))
-            out.append("%s %s" % ("".join(k for _, k in lists), _inline(match.group(3))))
+            out.append("%s %s" % ("".join(k for _, k in lists),
+                                  _inline(match.group(3), names)))
             continue
         if line.strip():
             lists = []
         match = HEADING.match(line)
         if match:
-            out.append("h%d. %s" % (len(match.group(1)), _inline(match.group(2))))
+            out.append("h%d. %s" % (len(match.group(1)), _inline(match.group(2), names)))
         else:
-            out.append(_inline(line))
+            out.append(_inline(line, names))
     out.extend(held)
     if fence:  # a block left open is closed before the text's last newline
         out.insert(len(out) - (out[-1] == ""), "{code}")
     return "\n".join(out)
 
 
-def to_wiki(text):
-    """Markdown to Jira wiki markup; the text as it is if the conversion fails."""
+def to_wiki(text, names=None):
+    """Markdown to Jira wiki markup; the text as it is if the conversion fails. The names
+    of the files its attachment: links name are added to `names`."""
+    found = []
     try:
-        return _wiki(text)
+        text = _wiki(text, found)
     except Exception:
         return text
+    if names is not None:
+        names.extend(found)
+    return text
 
 
-def text_arg(value, wiki):
+def text_arg(value, wiki, names=None):
     text = read_text(value)
-    return text if wiki else to_wiki(text)
+    return text if wiki else to_wiki(text, names)
 
 
 # --- commands --------------------------------------------------------------------------
@@ -602,6 +648,13 @@ def _print_issue(issue, epic, count):
         print("Links: " + "; ".join(links))
     print("Created: %s   Updated: %s" % (fields.get("created"), fields.get("updated")))
     print("\nDescription:\n%s" % (fields.get("description") or "(empty)"))
+    files = fields.get("attachment") or []
+    if files:
+        print("\nFiles: %d" % len(files))
+    for item in files:
+        print("%s %s (%s, %s, %s)" % (item.get("id"), item.get("filename"),
+                                      _size(item.get("size") or 0),
+                                      _name(item.get("author")), item.get("created")))
     comments = (fields.get("comment") or {}).get("comments") or []
     shown = comments[-count:] if count > 0 else []
     if comments:
@@ -612,6 +665,15 @@ def _print_issue(issue, epic, count):
         print("\n--- comment %s, %s, %s\n%s" % (
             comment.get("id"), _name(comment.get("author")), comment.get("created"),
             comment.get("body")))
+
+
+def _size(count):
+    for unit in ("B", "KB", "MB"):
+        if count < 1024 or unit == "MB":
+            break
+        count /= 1024.0
+    return "%d %s" % (count, unit) if unit == "B" or count >= 10 else "%.1f %s" % (
+        count, unit)
 
 
 def _link_phrase(link):
@@ -648,6 +710,14 @@ def cmd_search(jira, args):
 
 def cmd_create(jira, args):
     config = load_config(required=True)
+    description = None
+    if args.description is not None:
+        names = []
+        description = text_arg(args.description, args.wiki, names)
+        if names:
+            raise Failure(USAGE, "a new task has no files for attachment: links (%s): "
+                                 "create it without them, attach the files, then edit "
+                                 "the description" % ", ".join(names))
     project = config["project"]
     type_name = config["issue_types"].get(args.type, args.type)
     base = "issue/createmeta/%s/issuetypes" % urllib.parse.quote(project)
@@ -662,8 +732,8 @@ def cmd_create(jira, args):
     type_id = match[0]["id"]
     fields = {"project": {"key": project}, "issuetype": {"id": type_id},
               "summary": args.summary}
-    if args.description is not None:
-        fields["description"] = text_arg(args.description, args.wiki)
+    if description is not None:
+        fields["description"] = description
     if config["labels"]:
         fields["labels"] = list(config["labels"])
     if args.epic:
@@ -710,12 +780,14 @@ def cmd_edit(jira, args):
     if args.summary is not None and not args.summary.strip():
         raise Failure(USAGE, "the summary is empty")
     wanted = {}
+    names = []
     if args.summary is not None:
         wanted["summary"] = args.summary
     if args.description is not None:
-        wanted["description"] = remark(text_arg(args.description, args.wiki))
+        wanted["description"] = remark(text_arg(args.description, args.wiki, names))
     issue, epic = _read_issue(jira, args.key)
     current = issue.get("fields") or {}
+    _check_files(args.key, names, current.get("attachment"))
     # A field already so is not sent, so an edit run twice changes nothing the second time.
     fields = {name: value for name, value in wanted.items()
               if not _same(current.get(name), value)}
@@ -755,11 +827,17 @@ def cmd_transition(jira, args):
         for transition in transitions:
             print(_describe(transition))
         return OK
+    names = []
+    comment = None
+    if args.comment is not None:
+        comment = mark(text_arg(args.comment, args.wiki, names))
     config = load_config(required=False)
     status = (config or {}).get("statuses", {}).get(args.target, args.target)
-    issue = jira.call("GET", "issue/" + urllib.parse.quote(args.key), {"fields": "status"},
+    issue = jira.call("GET", "issue/" + urllib.parse.quote(args.key),
+                      {"fields": "status,attachment" if names else "status"},
                       missing=missing_issue(args.key))
     current = _name((issue.get("fields") or {}).get("status"))
+    _check_files(args.key, names, (issue.get("fields") or {}).get("attachment"))
     transitions = _transitions(jira, args.key)
     wanted = {args.target.lower(), status.lower()}
     match = [t for t in transitions if t.get("id") == args.target]
@@ -771,8 +849,7 @@ def cmd_transition(jira, args):
             raise Failure(REFUSED, "%s is already in %s: --resolution and --field were not "
                                    "applied, and no comment was posted" % (args.key, current))
         there = "%s is already in %s" % (args.key, current)
-        if args.comment is not None:
-            comment = mark(text_arg(args.comment, args.wiki))
+        if comment is not None:
             there += ", comment %s added" % _add_comment(jira, args.key, comment)
         print(there)
         return OK
@@ -797,9 +874,6 @@ def cmd_transition(jira, args):
     body = {"transition": {"id": transition["id"]}}
     if fields:
         body["fields"] = fields
-    comment = None
-    if args.comment is not None:
-        comment = mark(text_arg(args.comment, args.wiki))
     # Jira drops update.comment of a transition with no comment field on its screen.
     inline = comment is not None and "comment" in (transition.get("fields") or {})
     if inline:
@@ -860,7 +934,11 @@ def _add_comment(jira, key, text):
 
 
 def cmd_comment(jira, args):
-    comment_id = _add_comment(jira, args.key, mark(text_arg(args.text, args.wiki)))
+    names = []
+    text = mark(text_arg(args.text, args.wiki, names))
+    if names:
+        _check_files(args.key, names, _files(jira, args.key))
+    comment_id = _add_comment(jira, args.key, text)
     print("%s: comment %s added" % (args.key, comment_id))
     return OK
 
@@ -1026,6 +1104,176 @@ def _link_url(jira, key, url, title):
     return OK
 
 
+# --- files of a task --------------------------------------------------------------------
+
+
+def _files(jira, key):
+    issue = jira.call("GET", "issue/" + urllib.parse.quote(key), {"fields": "attachment"},
+                      missing=missing_issue(key))
+    return (issue.get("fields") or {}).get("attachment") or []
+
+
+def _file_list(files):
+    return ", ".join(sorted({f.get("filename") or "?" for f in files})) or "none"
+
+
+def _check_files(key, names, files, more=()):
+    """Refuse attachment: links to files the task does not have, before any write."""
+    known = {f.get("filename") for f in files or []} | set(more)
+    unknown = [name for name in names if name not in known]
+    if unknown:
+        raise Failure(REFUSED, "%s has no file %s for the attachment: links, nothing "
+                               "written; its files: %s"
+                      % (key, ", ".join(unknown), _file_list(files or [])))
+
+
+def _newest(files):
+    return max(files, key=lambda f: (f.get("created") or "", _number(f.get("id"))))
+
+
+def _number(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return -1
+
+
+def attachment_ref(name):
+    """The attachment: form of a name, ready to paste into Markdown."""
+    return "attachment:" + urllib.parse.quote(name, safe="")
+
+
+def _multipart(path, name):
+    boundary = "lado-" + base64.b16encode(os.urandom(12)).decode("ascii")
+    quoted = name.replace("\\", "\\\\").replace('"', '\\"')
+    with open(path, "rb") as handle:
+        content = handle.read()
+    head = ('--%s\r\nContent-Disposition: form-data; name="file"; filename="%s"\r\n'
+            'Content-Type: application/octet-stream\r\n\r\n' % (boundary, quoted))
+    data = head.encode("utf-8") + content + ("\r\n--%s--\r\n" % boundary).encode("ascii")
+    return data, "multipart/form-data; boundary=" + boundary
+
+
+def _readable(path):
+    if not os.path.exists(path):
+        return "not found"
+    if os.path.isdir(path):
+        return "a folder, not a file"
+    try:
+        with open(path, "rb"):
+            return None
+    except OSError as error:
+        return "cannot be read (%s)" % (error.strerror or error)
+
+
+def cmd_attach(jira, args):
+    for path in args.files:
+        problem = _readable(path)
+        if problem:
+            raise Failure(USAGE, "%s: %s; nothing uploaded" % (path, problem))
+    names = []
+    comment = None
+    if args.comment is not None:
+        comment = mark(text_arg(args.comment, args.wiki, names))
+    files = _files(jira, args.key)
+    _check_files(args.key, names, files, [os.path.basename(p) for p in args.files])
+    done = []
+    for number, path in enumerate(args.files):
+        name = os.path.basename(path)
+        try:
+            answer = jira.call("POST", "issue/%s/attachments" % urllib.parse.quote(args.key),
+                               upload=_multipart(path, name), missing=missing_issue(args.key),
+                               sent=None)
+        except Failure as failure:
+            if failure.code == NOT_FOUND:
+                # The task was just found: Jira 8 answers a file over its size limit 404.
+                failure = Failure(REFUSED, "Jira refused %s (404): larger than its "
+                                           "attachment size limit (%s)"
+                                  % (name, failure.message))
+            elif failure.code == NO_ACCESS and "disabled" in failure.message.lower():
+                failure = Failure(REFUSED, "attachments are disabled in this Jira: %s"
+                                  % failure.message)
+            if not done and failure.code in (REFUSED, NO_ACCESS):
+                raise failure
+            raise Failure(failure.code, "%s: uploaded %s; not uploaded %s%s: %s" % (
+                args.key, ", ".join(done) or "none",
+                ", ".join(os.path.basename(p) for p in args.files[number:]),
+                "; no comment added" if comment is not None else "", failure.message))
+        for item in answer or []:
+            print("%s %s %s" % (item.get("id"), item.get("filename"),
+                                attachment_ref(item.get("filename") or name)))
+        done.append(name)
+    if comment is not None:
+        try:
+            comment_id = _add_comment(jira, args.key, comment)
+        except Failure as failure:
+            raise Failure(failure.code, "%s: uploaded %s, but the comment was not added "
+                                        "(do not attach again; send it with comment): %s"
+                          % (args.key, ", ".join(done), failure.message))
+        print("%s: comment %s added" % (args.key, comment_id))
+    return OK
+
+
+def _safe_name(name, fallback):
+    name = re.split(r"[/\\]", name or "")[-1]
+    name = re.sub(r"[\x00-\x1f\x7f]", "", name).strip()
+    return fallback if name in ("", ".", "..") else name
+
+
+def _free_path(folder, name):
+    stem, ext = os.path.splitext(name)
+    path, number = os.path.join(folder, name), 0
+    while os.path.exists(path):
+        number += 1
+        path = os.path.join(folder, "%s-%d%s" % (stem, number, ext))
+    return path
+
+
+def cmd_download(jira, args):
+    if args.to is not None:
+        folder = os.path.abspath(args.to)
+        if not os.path.isdir(folder) or not os.access(folder, os.W_OK | os.X_OK):
+            raise Failure(USAGE, "--to %s is not a folder you can write to" % args.to)
+    files = _files(jira, args.key)
+    chosen = []
+    for wanted in args.names:
+        found = [f for f in files if str(f.get("id")) == wanted]
+        found = found or [f for f in files if f.get("filename") == wanted]
+        if not found:
+            raise Failure(NOT_FOUND, "%s has no file '%s'; its files: %s" % (
+                args.key, wanted, "; ".join("%s %s" % (f.get("id"), f.get("filename"))
+                                            for f in files) or "none"))
+        chosen.append(_newest(found))
+    for item in chosen:
+        if not jira.same_server(item.get("content") or ""):
+            raise Failure(REFUSED, "%s's file %s is served from another address than "
+                                   "JIRA_URL: not downloaded, the credentials not sent "
+                                   "(Jira's base URL differs from JIRA_URL); report it"
+                          % (args.key, item.get("filename")))
+    if args.to is None:
+        folder = tempfile.mkdtemp(prefix="lado-jira-")
+    done = []
+    for number, item in enumerate(chosen):
+        try:
+            data = jira.send("GET", item["content"])
+            path = _free_path(folder, _safe_name(item.get("filename"),
+                                                 "file-%s" % item.get("id")))
+            with open(path, "xb") as handle:
+                handle.write(data)
+        except (Failure, OSError) as failure:
+            if getattr(failure, "status", None) == 404:
+                failure = Failure(NOT_FOUND, "file %s not found (404)" % item.get("filename"))
+            message = getattr(failure, "message", None) or "cannot write: %s" % failure
+            raise Failure(getattr(failure, "code", USAGE),
+                          "%s: downloaded %s; not downloaded %s: %s" % (
+                              args.key, ", ".join(done) or "none",
+                              ", ".join(f.get("filename") or "?" for f in chosen[number:]),
+                              message))
+        print(path)
+        done.append(path)
+    return OK
+
+
 # --- command line ----------------------------------------------------------------------
 
 
@@ -1108,6 +1356,23 @@ def parser():
     p.add_argument("--type", help="for a task: %s (default relates), meaning 'KEY <type> "
                                   "TARGET'" % ", ".join(LINK_WORDS))
     p.set_defaults(run=cmd_link)
+
+    p = sub.add_parser("attach", help="upload files to a task; prints each one's "
+                                      "attachment: link")
+    p.add_argument("key")
+    p.add_argument("files", nargs="+", metavar="FILE")
+    p.add_argument("--comment", help="comment to add after the upload, Markdown; '-' reads "
+                                     "it from stdin")
+    p.add_argument("--wiki", action="store_true",
+                   help="send --comment as it is, as Jira wiki markup")
+    p.set_defaults(run=cmd_attach)
+
+    p = sub.add_parser("download", help="download a task's files; prints each file's path")
+    p.add_argument("key")
+    p.add_argument("names", nargs="+", metavar="NAME_OR_ID",
+                   help="a file's id, or its name (the newest file of that name)")
+    p.add_argument("--to", help="an existing folder (default: a new temporary folder)")
+    p.set_defaults(run=cmd_download)
 
     p = sub.add_parser("whoami", help="the account you work as: display name (login)")
     p.set_defaults(run=cmd_whoami)

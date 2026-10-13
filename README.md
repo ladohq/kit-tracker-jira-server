@@ -2,8 +2,8 @@
 
 A LADO kit for Jira Server and Data Center 8.4 or newer. It gives the roles of any process kit a
 skill named `tracker` that finds, reads, creates, edits (summary and description), moves,
-comments on, assigns and labels tasks, links a branch, a commit or another task to them
-and says which account it works as, through Jira's REST API v2 and a script on Python's
+comments on, assigns and labels tasks, links a branch, a commit or another task to them,
+attaches files to tasks and downloads their files, and says which account it works as, through Jira's REST API v2 and a script on Python's
 standard library, run by `uv` (no MCP server). Jira Cloud is not supported.
 
 The kit has no agents and no flows: it adds the skill to a session led by a process kit.
@@ -80,8 +80,12 @@ wiki markup (headings, emphasis, code, lists, links; `--wiki` sends wiki markup 
 Every comment and every description the script writes (a created task's, or an edited
 one's, whose old mark is replaced) starts with `[LADO: <agent>]`, the name of the agent
 that wrote it. Run by hand (no `LADO_AGENT` in the environment), the
-script adds no mark. By default agents only read; they create, transition, comment, assign,
-label or link when their role, their step or the human asks, and edit a task's summary or
+script adds no mark. A task's files are linked in that Markdown as
+`[text](attachment:<name>)` or shown as `![](attachment:<name>)`; for a new task the
+agent creates it, attaches the files, then edits the description with the links. Files
+are downloaded into a temporary folder outside the repository, and the credentials go
+only to `JIRA_URL`'s own address. By default agents only read; they create, transition, comment, assign,
+label, link or attach files when their role, their step or the human asks, and edit a task's summary or
 description only when the human or their step asks (`skills/tracker/SKILL.md`). A process
 kit says which roles touch the tracker and when, and may allow more.
 

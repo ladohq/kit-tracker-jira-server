@@ -50,7 +50,8 @@ class Raw:
 
 
 class Seq:
-    """Payloads answered one per request, the last one from then on."""
+    """Payloads answered one per request, the last one from then on; a (status, payload)
+    pair answers with its own status."""
 
     def __init__(self, *payloads):
         self.payloads = list(payloads)
@@ -79,7 +80,8 @@ class FakeJira:
                     "method": self.command, "path": url.path,
                     "query": dict(urllib.parse.parse_qsl(url.query)),
                     "headers": dict(self.headers),
-                    "body": json.loads(body) if body else None})
+                    "body": (json.loads(body) if "json" in (self.headers.get(
+                        "Content-Type") or "") else body) if body else None})
                 route = fake.routes.get((self.command, url.path))
                 if route is None:
                     status, headers, payload = 404, {}, {"errorMessages": ["no route"]}
@@ -87,6 +89,8 @@ class FakeJira:
                     status, headers, payload = route
                     if isinstance(payload, Seq):
                         payload = payload.next()
+                        if isinstance(payload, tuple):
+                            status, payload = payload
                 raw = payload if isinstance(payload, Raw) else Raw(
                     json.dumps(payload).encode() if payload is not None else b"")
                 data = raw.data
@@ -112,6 +116,10 @@ class FakeJira:
 
     def route(self, method, path, payload=None, status=200, headers=None):
         self.routes[(method, "/rest/api/2/" + path)] = (status, headers or {}, payload)
+
+    def route_file(self, path, data, status=200, headers=None):
+        """A path outside the REST API, e.g. a file's content."""
+        self.routes[("GET", path)] = (status, headers or {}, Raw(data))
 
     def close(self):
         self.server.shutdown()
@@ -280,6 +288,20 @@ class MarkdownTest(unittest.TestCase):
     def test_wiki_characters_and_the_rest_pass_as_they_are(self):
         text = "[~jdoe] {noformat} [text|http://x] ||h|| > quote\n| a | b |\n"
         self.assertWiki(text, text)
+
+    def test_attachment_links(self):
+        self.assertWiki("![shot](attachment:a.png) and [the log](attachment:run.log)",
+                        "!a.png! and [the log|^run.log]")
+        self.assertWiki("![](attachment:my%20file%281%29.png)", "!my file(1).png!")
+        self.assertWiki("[report](<attachment:my report.pdf>)", "[report|^my report.pdf]")
+        self.assertWiki("[**big** one](attachment:snake_case_name.txt)",
+                        "[*big* one|^snake_case_name.txt]")
+        self.assertWiki("`![x](attachment:a.png)` and ![](http://x/y.png)",
+                        r"{{!\[x\](attachment:a.png)}} and ![](http://x/y.png)")
+        names = []
+        jira.to_wiki("- ![](attachment:a.png)\n# [b](attachment:b%20c.txt)\n"
+                     "```\n![](attachment:code.png)\n```", names)
+        self.assertEqual(names, ["a.png", "b c.txt"])
 
     def test_failure_sends_the_original_text(self):
         with mock.patch.object(jira, "_wiki", side_effect=RuntimeError):
@@ -914,6 +936,290 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("Links: relates to ABC-2; blocks XYZ-9", out)
         self.assertIn("issuelinks", self.jira.requests[0]["query"]["fields"])
+
+
+def jira_file(number, name, created="2026-10-13T10:00:00.000+0000", size=12345, url=None):
+    return {"id": str(number), "filename": name, "size": size, "created": created,
+            "author": {"name": "ann", "displayName": "Ann"},
+            "content": url or "/secure/attachment/%d/%s" % (number, name)}
+
+
+class FilesTest(JiraTestCase):
+    def setUp(self):
+        super().setUp()
+        self.local = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.local)
+
+    def local_file(self, name, data=b"bytes"):
+        path = os.path.join(self.local, name)
+        with open(path, "wb") as handle:
+            handle.write(data)
+        return path
+
+    def route_files(self, *files, key="TEST-1"):
+        listed = []
+        for item in files:
+            item = dict(item)
+            if item["content"].startswith("/"):
+                item["content"] = self.jira.url + item["content"]
+            listed.append(item)
+        self.jira.route("GET", "issue/" + key, {"key": key, "fields": {
+            "summary": "With files", "status": {"name": "Open"}, "attachment": listed,
+            "description": "text", "comment": {"comments": []}}})
+        return listed
+
+    def uploads(self):
+        return self.sent("POST", "issue/TEST-1/attachments")
+
+    # get
+
+    def test_get_shows_files_between_description_and_comments(self):
+        self.route_files(jira_file(10, "shot.png"),
+                         jira_file(11, "my log.txt", size=300, created="2026-10-13T11:00"))
+        code, out, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Description:\ntext\n\nFiles: 2\n"
+                      "10 shot.png (12 KB, Ann, 2026-10-13T10:00:00.000+0000)\n"
+                      "11 my log.txt (300 B, Ann, 2026-10-13T11:00)\n\nComments: none", out)
+        self.assertIn("attachment", self.jira.requests[0]["query"]["fields"])
+
+    def test_get_without_files_has_no_block(self):
+        self.route_files()
+        code, out, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Files", out)
+
+    def test_sizes(self):
+        self.assertEqual([jira._size(n) for n in (0, 1023, 1024, 1536, 12345,
+                                                  5 * 1024 * 1024, 3 * 1024 ** 3)],
+                         ["0 B", "1023 B", "1.0 KB", "1.5 KB", "12 KB", "5.0 MB",
+                          "3072 MB"])
+
+    # attach
+
+    def test_attach_one_file(self):
+        self.route_files()
+        path = self.local_file("my shot.png", b"\x89PNG data")
+        self.jira.route("POST", "issue/TEST-1/attachments", [
+            {"id": "20", "filename": "my shot.png", "size": 9}])
+        code, out, err = self.run_jira("attach", "TEST-1", path)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "20 my shot.png attachment:my%20shot.png\n")
+        request = self.uploads()[0]
+        self.assertEqual(request["headers"]["X-Atlassian-Token"], "no-check")
+        self.assertTrue(request["headers"]["Content-Type"].startswith(
+            "multipart/form-data; boundary="))
+        self.assertIn(b'name="file"; filename="my shot.png"', request["body"])
+        self.assertIn(b"\r\n\r\n\x89PNG data\r\n--", request["body"])
+
+    def test_attach_several_files_one_request_each(self):
+        self.route_files()
+        paths = [self.local_file("a.txt"), self.local_file("b(1).pdf")]
+        self.jira.route("POST", "issue/TEST-1/attachments", Seq(
+            [{"id": "21", "filename": "a.txt"}], [{"id": "22", "filename": "b(1).pdf"}]))
+        code, out, err = self.run_jira("attach", "TEST-1", *paths)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "21 a.txt attachment:a.txt\n"
+                              "22 b(1).pdf attachment:b%281%29.pdf\n")
+        self.assertEqual(len(self.uploads()), 2)
+
+    def test_attach_checks_every_file_before_any_request(self):
+        good = self.local_file("a.txt")
+        for bad, why in ((os.path.join(self.local, "missing.txt"), "not found"),
+                         (self.local, "a folder")):
+            code, _, err = self.run_jira("attach", "TEST-1", good, bad)
+            self.assertEqual(code, jira.USAGE, err)
+            self.assertIn(why, err)
+            self.assertIn("nothing uploaded", err)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_attach_partial_failure_names_both_sides(self):
+        self.route_files()
+        paths = [self.local_file(n) for n in ("a.txt", "b.txt", "c.txt")]
+        self.jira.route("POST", "issue/TEST-1/attachments", Seq(
+            [{"id": "21", "filename": "a.txt"}], (500, {"errorMessages": ["boom"]})))
+        code, out, err = self.run_jira("attach", "TEST-1", *paths, "--comment", "x")
+        self.assertEqual(code, jira.SERVER_ERROR, err)
+        self.assertEqual(out, "21 a.txt attachment:a.txt\n")
+        self.assertIn("TEST-1: uploaded a.txt; not uploaded b.txt, c.txt; no comment "
+                      "added: Jira failed (500)", err)
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertEqual(len(self.uploads()), 2)
+        self.assertEqual(self.sent("POST", "issue/TEST-1/comment"), [])
+
+    def test_attach_with_comment_links_the_new_file(self):
+        self.route_files(jira_file(10, "old.log"))
+        path = self.local_file("new shot.png")
+        self.jira.route("POST", "issue/TEST-1/attachments", [
+            {"id": "20", "filename": "new shot.png"}])
+        self.jira.route("POST", "issue/TEST-1/comment", {"id": "300"}, status=201)
+        code, out, err = self.run_jira(
+            "attach", "TEST-1", path, "--comment", "-",
+            stdin="See ![](attachment:new%20shot.png) and [log](attachment:old.log)")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.splitlines()[-1], "TEST-1: comment 300 added")
+        self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[0]["body"]["body"],
+                         "\\[LADO: developer\\]\n\nSee !new shot.png! and [log|^old.log]")
+
+    def test_attach_comment_with_an_unknown_file_uploads_nothing(self):
+        self.route_files(jira_file(10, "old.log"))
+        path = self.local_file("a.png")
+        code, _, err = self.run_jira("attach", "TEST-1", path, "--comment",
+                                     "![](attachment:b.png)")
+        self.assertEqual(code, jira.REFUSED, err)
+        self.assertIn("TEST-1 has no file b.png", err)
+        self.assertIn("its files: old.log", err)
+        self.assertEqual(self.uploads(), [])
+
+    def test_attach_wiki_comment_is_not_checked(self):
+        self.route_files()
+        self.jira.route("POST", "issue/TEST-1/attachments", [{"id": "20", "filename": "a"}])
+        self.jira.route("POST", "issue/TEST-1/comment", {"id": "300"}, status=201)
+        code, _, err = self.run_jira("attach", "TEST-1", self.local_file("a"), "--wiki",
+                                     "--comment", "[x](attachment:zzz)")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[0]["body"]["body"],
+                         "\\[LADO: developer\\]\n\n[x](attachment:zzz)")
+
+    def test_attach_refusals(self):
+        self.route_files()
+        path = self.local_file("big.bin")
+        for status, payload, code, text in [
+                (413, None, jira.REFUSED, "too large (413)"),
+                (404, {"errorMessages": ["too big"]}, jira.REFUSED, "size limit"),
+                (403, {"errorMessages": ["Attachments are disabled."]}, jira.REFUSED,
+                 "attachments are disabled"),
+                (403, {"errorMessages": ["No permission"]}, jira.NO_ACCESS, "no access")]:
+            with self.subTest(status=status, text=text):
+                self.jira.route("POST", "issue/TEST-1/attachments", payload, status=status)
+                got, _, err = self.run_jira("attach", "TEST-1", path)
+                self.assertEqual(got, code, err)
+                self.assertIn(text, err)
+
+    def test_attach_to_a_missing_task_sends_no_file(self):
+        code, _, err = self.run_jira("attach", "TEST-1", self.local_file("a"))
+        self.assertEqual(code, jira.NOT_FOUND, err)
+        self.assertEqual(self.uploads(), [])
+
+    # download
+
+    def test_download_by_name_and_by_id_into_a_new_folder(self):
+        self.route_files(jira_file(10, "a.txt"), jira_file(11, "b.png"))
+        self.jira.route_file("/secure/attachment/10/a.txt", b"AAA")
+        self.jira.route_file("/secure/attachment/11/b.png", b"\x89PNG")
+        code, out, err = self.run_jira("download", "TEST-1", "a.txt", "11")
+        self.assertEqual(code, 0, err)
+        paths = out.splitlines()
+        self.addCleanup(shutil.rmtree, os.path.dirname(paths[0]))
+        self.assertEqual([os.path.basename(p) for p in paths], ["a.txt", "b.png"])
+        self.assertTrue(os.path.basename(os.path.dirname(paths[0])).startswith("lado-jira-"))
+        self.assertTrue(all(os.path.isabs(p) for p in paths))
+        with open(paths[1], "rb") as handle:
+            self.assertEqual(handle.read(), b"\x89PNG")
+        request = self.jira.requests[-1]
+        self.assertEqual(request["path"], "/secure/attachment/11/b.png")
+        self.assertIn("Authorization", request["headers"])
+
+    def test_download_id_first_then_newest_of_a_name(self):
+        self.route_files(jira_file(10, "11"), jira_file(11, "x.txt"),
+                         jira_file(12, "x.txt", created="2026-10-13T12:00:00.000+0000"))
+        for number in (11, 12):
+            self.jira.route_file("/secure/attachment/%d/x.txt" % number, b"%d" % number)
+        code, out, err = self.run_jira("download", "TEST-1", "11", "x.txt", "--to",
+                                       self.local)
+        self.assertEqual(code, 0, err)
+        contents = []
+        for path in out.splitlines():
+            with open(path, "rb") as handle:
+                contents.append(handle.read())
+        self.assertEqual(contents, [b"11", b"12"])
+
+    def test_download_never_overwrites_and_cleans_the_name(self):
+        self.route_files(jira_file(10, "../evil\x01.txt", url="/secure/attachment/10/e"),
+                         jira_file(11, "..", url="/secure/attachment/11/d"))
+        self.jira.route_file("/secure/attachment/10/e", b"new")
+        self.jira.route_file("/secure/attachment/11/d", b"dots")
+        self.local_file("evil.txt", b"old")
+        self.local_file("evil-1.txt", b"old")
+        code, out, err = self.run_jira("download", "TEST-1", "10", "11", "--to", self.local)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.splitlines(), [os.path.join(self.local, "evil-2.txt"),
+                                            os.path.join(self.local, "file-11")])
+        with open(os.path.join(self.local, "evil.txt"), "rb") as handle:
+            self.assertEqual(handle.read(), b"old")
+
+    def test_download_from_another_server_sends_no_credentials(self):
+        other = FakeJira()
+        self.addCleanup(other.close)
+        other.route_file("/secure/attachment/10/a.txt", b"x")
+        for url in (other.url + "/secure/attachment/10/a.txt",
+                    "https://evil.example/secure/attachment/10/a.txt"):
+            with self.subTest(url=url):
+                self.route_files(jira_file(10, "a.txt", url=url))
+                code, out, err = self.run_jira("download", "TEST-1", "a.txt", "--to",
+                                               self.local)
+                self.assertEqual(code, jira.REFUSED, err)
+                self.assertIn("another address than JIRA_URL", err)
+                self.assertEqual(out, "")
+        self.assertEqual(other.requests, [])
+        self.assertEqual(os.listdir(self.local), [])
+
+    def test_download_unknown_name_lists_the_files(self):
+        self.route_files(jira_file(10, "a.txt"))
+        code, _, err = self.run_jira("download", "TEST-1", "a.txt", "b.txt")
+        self.assertEqual(code, jira.NOT_FOUND, err)
+        self.assertIn("TEST-1 has no file 'b.txt'; its files: 10 a.txt", err)
+        self.assertEqual(len(self.jira.requests), 1)
+
+    def test_download_to_a_missing_folder(self):
+        code, _, err = self.run_jira("download", "TEST-1", "a", "--to",
+                                     os.path.join(self.local, "nope"))
+        self.assertEqual(code, jira.USAGE, err)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_download_partial_failure(self):
+        self.route_files(jira_file(10, "a.txt"), jira_file(11, "b.txt"))
+        self.jira.route_file("/secure/attachment/10/a.txt", b"A")
+        code, out, err = self.run_jira("download", "TEST-1", "a.txt", "b.txt", "--to",
+                                       self.local)
+        self.assertEqual(code, jira.NOT_FOUND, err)
+        self.assertIn("TEST-1: downloaded %s; not downloaded b.txt: file b.txt not found"
+                      % os.path.join(self.local, "a.txt"), err)
+
+    # attachment: in the other commands
+
+    def test_create_with_attachment_links_is_refused(self):
+        code, _, err = self.run_jira("create", "--type", "Bug", "--summary", "x",
+                                     "--description", "![](attachment:a.png)")
+        self.assertEqual(code, jira.USAGE, err)
+        self.assertIn("attach the files, then edit", err)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_edit_comment_transition_check_the_names(self):
+        self.route_files(jira_file(10, "a b.png"))
+        self.jira.route("PUT", "issue/TEST-1", None, status=204)
+        self.jira.route("POST", "issue/TEST-1/comment", {"id": "300"}, status=201)
+        self.jira.route("GET", "issue/TEST-1/transitions", {"transitions": [
+            {"id": "21", "name": "Review", "to": {"name": "Code Review"}, "fields": {}}]})
+        self.jira.route("POST", "issue/TEST-1/transitions", None, status=204)
+        commands = [("edit", "TEST-1", "--description"), ("comment", "TEST-1"),
+                    ("transition", "TEST-1", "review", "--comment")]
+        for argv in commands:
+            with self.subTest(command=argv[0]):
+                code, _, err = self.run_jira(*argv, "![](attachment:zzz.png)")
+                self.assertEqual(code, jira.REFUSED, err)
+                self.assertIn("TEST-1 has no file zzz.png", err)
+                self.assertIn("its files: a b.png", err)
+        self.assertEqual([r for r in self.jira.requests if r["method"] != "GET"], [])
+        for argv in commands:
+            with self.subTest(command=argv[0]):
+                code, _, err = self.run_jira(*argv, "![](<attachment:a b.png>)")
+                self.assertEqual(code, 0, err)
+        written = [r["body"] for r in self.jira.requests if r["method"] != "GET"]
+        self.assertEqual(written[0]["fields"]["description"],
+                         "\\[LADO: developer\\]\n\n!a b.png!")
+        self.assertEqual(written[1]["body"], "\\[LADO: developer\\]\n\n!a b.png!")
+        self.assertEqual(written[-1]["body"], "\\[LADO: developer\\]\n\n!a b.png!")
 
 
 class ErrorsTest(JiraTestCase):
