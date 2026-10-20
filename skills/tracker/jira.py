@@ -666,11 +666,15 @@ def _person(user):
 
 def _read_issue(jira, key):
     """The task with the fields get shows, and what of the settings shows it: the Epic
-    Link field id or None, and the named fields (name, id) of `fields`."""
+    Link field id or None, and the usable names (name, id) of `fields`."""
     config = load_config(required=False)
     names = list(GET_FIELDS)
     epic = (config or {}).get("fields", {}).get("epic_link")
+    # Only names whose field is a custom single-line text field show in Fields: a
+    # system field (description) would print a whole text there.
     named = named_fields(config)
+    if named:
+        named = usable_fields(config, jira_fields(jira))
     names += ([epic] if epic else []) + [field for _, field in named]
     issue = jira.call("GET", "issue/" + urllib.parse.quote(key),
                       {"fields": ",".join(names)}, missing=missing_issue(key))
@@ -1091,8 +1095,20 @@ def cmd_label(jira, args):
     return OK
 
 
-def _field_id(config, name):
-    usable = ", ".join(n for n, _ in named_fields(config)) or "none"
+def jira_fields(jira):
+    """This Jira's fields by id (the REST resource `field`)."""
+    return {item.get("id"): item for item in jira.call("GET", "field") or []}
+
+
+def usable_fields(config, known):
+    """The (name, field id) pairs of `fields` the field command can use: the custom
+    single-line text fields among this Jira's fields `known`."""
+    return [(name, field) for name, field in named_fields(config)
+            if ((known.get(field) or {}).get("schema") or {}).get("custom") == TEXT_FIELD]
+
+
+def _field_id(config, name, known):
+    usable = ", ".join(n for n, _ in usable_fields(config, known)) or "none"
     if name in EPIC_FIELDS:
         raise Failure(CONFIG, "'fields.%s' is create's epic field, not usable by field; "
                               "usable names of 'fields' in %s: %s"
@@ -1119,9 +1135,10 @@ def cmd_field(jira, args):
             raise Failure(USAGE, "the value '-' is not taken; to take the value off the "
                                  "task, use --clear")
     config = load_config(required=True)
-    field = _field_id(config, args.name)
+    fields = jira_fields(jira)
+    field = _field_id(config, args.name, fields)
     where = "'fields.%s: %s' in %s" % (args.name, field, CONFIG_PATH)
-    known = [f for f in jira.call("GET", "field") or [] if f.get("id") == field]
+    known = [fields[field]] if field in fields else []
     if not known:
         raise Failure(CONFIG, "this Jira has no field %s of %s" % (field, where))
     schema = known[0].get("schema") or {}

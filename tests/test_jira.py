@@ -43,6 +43,23 @@ fields:
 """
 
 
+TEXT = "com.atlassian.jira.plugin.system.customfieldtypes:"
+JIRA_FIELDS = [
+    {"id": "summary", "name": "Summary", "schema": {"type": "string", "system": "summary"}},
+    {"id": "customfield_10200", "name": "Release",
+     "schema": {"type": "string", "custom": TEXT + "textfield"}},
+    {"id": "customfield_10201", "name": "Notes",
+     "schema": {"type": "string", "custom": TEXT + "textarea"}},
+    {"id": "customfield_10202", "name": "Due", "schema": {"type": "date",
+                                                         "custom": TEXT + "datepicker"}},
+    {"id": "description", "name": "Description",
+     "schema": {"type": "string", "system": "description"}}]
+
+
+# The settings without a name for `field`: get then reads only the task.
+CONFIG_WITHOUT_FIELD = CONFIG.replace("  release: customfield_10200\n", "")
+
+
 class Raw:
     """A payload sent as it is; `length` claims a longer body that never comes."""
 
@@ -144,6 +161,8 @@ class JiraTestCase(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # get reads this Jira's fields to tell which names of `fields` it shows.
+        self.jira.route("GET", "field", JIRA_FIELDS)
 
     def write_config(self, text):
         with open(os.path.join(self.repo, ".lado", "tracker.yaml"), "w") as handle:
@@ -333,7 +352,7 @@ class CommandsTest(JiraTestCase):
         self.assertIn("Comments: 7, the last 2 shown", out)
         self.assertIn("--- comment 107, Bob, 2026-10-07\nc7", out)
         self.assertNotIn("c5", out)
-        request = self.jira.requests[0]
+        request = self.sent("GET", "issue/TEST-1")[0]
         expected = "Basic " + base64.b64encode(
             ("agent.user:" + PASSWORD).encode()).decode()
         self.assertEqual(request["headers"]["Authorization"], expected)
@@ -942,26 +961,13 @@ class CommandsTest(JiraTestCase):
         code, out, err = self.run_jira("get", "TEST-1")
         self.assertEqual(code, 0, err)
         self.assertIn("Links: relates to ABC-2; blocks XYZ-9", out)
-        self.assertIn("issuelinks", self.jira.requests[0]["query"]["fields"])
+        self.assertIn("issuelinks", self.sent("GET", "issue/TEST-1")[0]["query"]["fields"])
 
 
 def jira_file(number, name, created="2026-10-13T10:00:00.000+0000", size=12345, url=None):
     return {"id": str(number), "filename": name, "size": size, "created": created,
             "author": {"name": "ann", "displayName": "Ann"},
             "content": url or "/secure/attachment/%d/%s" % (number, name)}
-
-
-TEXT = "com.atlassian.jira.plugin.system.customfieldtypes:"
-JIRA_FIELDS = [
-    {"id": "summary", "name": "Summary", "schema": {"type": "string", "system": "summary"}},
-    {"id": "customfield_10200", "name": "Release",
-     "schema": {"type": "string", "custom": TEXT + "textfield"}},
-    {"id": "customfield_10201", "name": "Notes",
-     "schema": {"type": "string", "custom": TEXT + "textarea"}},
-    {"id": "customfield_10202", "name": "Due", "schema": {"type": "date",
-                                                         "custom": TEXT + "datepicker"}},
-    {"id": "description", "name": "Description",
-     "schema": {"type": "string", "system": "description"}}]
 
 
 class FieldTest(JiraTestCase):
@@ -1020,6 +1026,8 @@ class FieldTest(JiraTestCase):
         self.assertEqual(self.jira.requests, [])
 
     def test_unknown_and_epic_names_are_refused(self):
+        # Only custom single-line text fields are listed as usable.
+        self.write_config(CONFIG + "  notes: customfield_10201\n  text: description\n")
         for name, message in (("version", "'version' is not a name of 'fields'"),
                               ("epic_link", "not usable by field"),
                               ("epic_name", "not usable by field")):
@@ -1027,9 +1035,9 @@ class FieldTest(JiraTestCase):
                 code, _, err = self.run_jira("field", "TEST-1", name, "1")
                 self.assertEqual(code, jira.CONFIG, err)
                 self.assertIn(message, err)
-                self.assertIn("usable names", err)
-                self.assertIn("release", err)
-        self.assertEqual(self.jira.requests, [])
+                self.assertRegex(err, r"usable names[^:]*: release\n")
+        # Only this Jira's fields are read; the task is neither read nor written.
+        self.assertEqual({r["path"] for r in self.jira.requests}, {"/rest/api/2/field"})
 
     def test_field_this_jira_lacks(self):
         self.write_config(CONFIG.replace("customfield_10200", "customfield_99999"))
@@ -1077,12 +1085,32 @@ class FieldTest(JiraTestCase):
         code, out, err = self.run_jira("get", "TEST-1")
         self.assertIn("\nFields: none\n", out)
 
+    def test_get_shows_only_custom_single_line_text_fields(self):
+        self.write_config(CONFIG + "  notes: customfield_10201\n  text: description\n")
+        self.route_get(customfield_10200="0.42.0", customfield_10201="a\nb",
+                       description="line 1\nline 2")
+        code, out, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("\nFields: release = 0.42.0\n", out)
+        fields = self.sent("GET", "issue/TEST-1")[0]["query"]["fields"].split(",")
+        self.assertNotIn("customfield_10201", fields)
+
     def test_get_without_usable_names_has_no_fields_line(self):
-        self.write_config(CONFIG.replace("  release: customfield_10200\n", ""))
+        self.write_config(CONFIG_WITHOUT_FIELD + "  notes: customfield_10201\n"
+                          "  text: description\n")
+        self.route_get(customfield_10201="a")
+        code, out, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Fields:", out)
+
+    def test_get_without_names_reads_only_the_task(self):
+        self.write_config(CONFIG_WITHOUT_FIELD)
         self.route_get(customfield_10200="0.42.0")
         code, out, err = self.run_jira("get", "TEST-1")
         self.assertEqual(code, 0, err)
         self.assertNotIn("Fields:", out)
+        self.assertEqual([r["path"] for r in self.jira.requests],
+                         ["/rest/api/2/issue/TEST-1"])
 
 
 class FilesTest(JiraTestCase):
@@ -1122,7 +1150,7 @@ class FilesTest(JiraTestCase):
         self.assertIn("Description:\ntext\n\nFiles: 2\n"
                       "10 shot.png (12 KB, Ann, 2026-10-13T10:00:00.000+0000)\n"
                       "11 my log.txt (300 B, Ann, 2026-10-13T11:00)\n\nComments: none", out)
-        self.assertIn("attachment", self.jira.requests[0]["query"]["fields"])
+        self.assertIn("attachment", self.sent("GET", "issue/TEST-1")[0]["query"]["fields"])
 
     def test_get_without_files_has_no_block(self):
         self.route_files()
@@ -1465,6 +1493,10 @@ class FilesTest(JiraTestCase):
 
 
 class ErrorsTest(JiraTestCase):
+    def setUp(self):
+        super().setUp()
+        self.write_config(CONFIG_WITHOUT_FIELD)  # get sends one request
+
     def assertFails(self, code, text, *argv):
         got, out, err = self.run_jira(*(argv or ("get", "TEST-1")))
         self.assertEqual(got, code, err)
@@ -1763,6 +1795,7 @@ class TlsTest(JiraTestCase):
         self.jira = FakeJira(tls_context=context)
         self.addCleanup(self.jira.close)
         os.environ["JIRA_URL"] = self.jira.url
+        self.write_config(CONFIG_WITHOUT_FIELD)  # get sends one request
 
     def test_untrusted_certificate(self):
         with mock.patch.dict(os.environ, {"SSL_CERT_FILE": ""}):
