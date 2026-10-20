@@ -959,7 +959,9 @@ JIRA_FIELDS = [
     {"id": "customfield_10201", "name": "Notes",
      "schema": {"type": "string", "custom": TEXT + "textarea"}},
     {"id": "customfield_10202", "name": "Due", "schema": {"type": "date",
-                                                         "custom": TEXT + "datepicker"}}]
+                                                         "custom": TEXT + "datepicker"}},
+    {"id": "description", "name": "Description",
+     "schema": {"type": "string", "system": "description"}}]
 
 
 class FieldTest(JiraTestCase):
@@ -1037,15 +1039,18 @@ class FieldTest(JiraTestCase):
         self.assertIn("no field customfield_99999", err)
         self.assertEqual(self.puts(), [])
 
-    def test_field_not_single_line_text_is_refused(self):
+    def test_field_not_custom_single_line_text_is_a_settings_error(self):
         for field, kind in (("customfield_10201", "textarea"),
-                            ("customfield_10202", "datepicker")):
+                            ("customfield_10202", "datepicker"),
+                            ("summary", "system field summary"),
+                            ("description", "system field description")):
             with self.subTest(field=field):
                 self.write_config(CONFIG.replace("customfield_10200", field))
                 self.route_field(None)
                 code, _, err = self.run_jira("field", "TEST-1", "release", "1")
-                self.assertEqual(code, jira.REFUSED, err)
-                self.assertIn("of type %s, not a single-line text field" % kind, err)
+                self.assertEqual(code, jira.CONFIG, err)
+                self.assertIn("of type %s, not a custom single-line text field" % kind, err)
+                self.assertIn("report it, the user fixes the file", err)
         self.assertEqual(self.puts(), [])
 
     def test_refused_by_jira(self):
@@ -1211,6 +1216,27 @@ class FilesTest(JiraTestCase):
         self.assertEqual(self.sent("POST", "issue/TEST-1/comment")[0]["body"]["body"],
                          "\\[LADO: developer\\]\n\nSee !new shot.png! and [log|^old.log]")
 
+    def test_attach_comment_failure_keeps_its_rule(self):
+        path = self.local_file("a.png")
+        for status, headers, code, advice in [
+                (401, {}, jira.CREDENTIALS_REFUSED,
+                 "the comment was not added (do not attach again; report it; send the "
+                 "comment with comment once you are told to)"),
+                (502, {}, jira.SERVER_ERROR,
+                 "the comment may not have been added (do not attach again; check with "
+                 "get, then send the comment with comment if it is not there)"),
+                (400, {}, jira.REFUSED,
+                 "the comment was not added (do not attach again; fix the text")]:
+            with self.subTest(status=status):
+                self.route_files()
+                self.jira.route("POST", "issue/TEST-1/attachments",
+                                [{"id": "20", "filename": "a.png"}])
+                self.jira.route("POST", "issue/TEST-1/comment",
+                                {"errorMessages": ["no"]}, status=status, headers=headers)
+                got, _, err = self.run_jira("attach", "TEST-1", path, "--comment", "x")
+                self.assertEqual(got, code, err)
+                self.assertIn("TEST-1: uploaded a.png, but " + advice, err)
+
     def test_attach_comment_with_an_unknown_file_uploads_nothing(self):
         self.route_files(jira_file(10, "old.log"))
         path = self.local_file("a.png")
@@ -1351,6 +1377,38 @@ class FilesTest(JiraTestCase):
                 self.assertEqual(code, jira.USAGE, err)
                 self.assertIn("inside the repository", err)
         self.assertEqual(self.jira.requests, [])
+
+    def test_download_into_the_main_checkout_of_a_worktree_is_refused(self):
+        # A worktree inside the main checkout, as LADO keeps them; cwd is the worktree.
+        main = os.path.join(self.repo, "main")
+        common = os.path.join(main, ".git")
+        gitdir = os.path.join(common, "worktrees", "wt")
+        os.makedirs(gitdir)
+        os.makedirs(os.path.join(main, "docs"))
+        with open(os.path.join(gitdir, "commondir"), "w") as handle:
+            handle.write("../..\n")
+        tree = os.path.join(main, ".lado", "worktrees", "wt")
+        os.makedirs(os.path.join(tree, ".lado"))
+        with open(os.path.join(tree, ".git"), "w") as handle:
+            handle.write("gitdir: %s\n" % gitdir)
+        shutil.copy(os.path.join(self.repo, ".lado", "tracker.yaml"),
+                    os.path.join(tree, ".lado"))
+        os.chdir(tree)
+        code, _, err = self.run_jira("download", "TEST-1", "a", "--to",
+                                     os.path.join(main, "docs"))
+        self.assertEqual(code, jira.USAGE, err)
+        self.assertIn("inside the repository", err)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_download_a_file_it_cannot_write_is_exit_1(self):
+        self.route_files(jira_file(10, "a.txt"))
+        self.jira.route_file("/secure/attachment/10/a.txt", b"A")
+        with mock.patch("builtins.open", side_effect=OSError(28, "No space left")):
+            code, _, err = self.run_jira("download", "TEST-1", "a.txt", "--to",
+                                         self.local)
+        self.assertEqual(code, jira.CRASH, err)
+        self.assertIn("not downloaded a.txt: cannot write", err)
+        self.assertIn("report it", err)
 
     def test_download_partial_failure(self):
         self.route_files(jira_file(10, "a.txt"), jira_file(11, "b.txt"))

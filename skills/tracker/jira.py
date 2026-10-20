@@ -30,6 +30,7 @@ import urllib.request
 
 # Exit codes, one per kind of failure; SKILL.md tells the agent what to do on each.
 OK = 0
+CRASH = 1  # also a file download cannot write: nothing to fix in the command
 USAGE = 2
 CONFIG = 3
 SETUP = 4
@@ -223,15 +224,30 @@ def find_config(start):
 
 
 def find_repository(start):
-    """The real path of the repository holding start (a folder with .git), or None."""
+    """The real paths of the repository holding start (a folder with .git) and, when
+    that is a linked worktree, of the main checkout it belongs to; empty when none."""
     here = os.path.realpath(start)
-    while True:
-        if os.path.exists(os.path.join(here, ".git")):
-            return here
+    while not os.path.exists(os.path.join(here, ".git")):
         parent = os.path.dirname(here)
         if parent == here:
-            return None
+            return []
         here = parent
+    roots = [here]
+    git = os.path.join(here, ".git")
+    if os.path.isfile(git):
+        # A worktree's .git names its git dir, whose `commondir` leads to the main
+        # checkout's .git (a worktree may lie inside that checkout).
+        try:
+            with open(git, encoding="utf-8") as handle:
+                gitdir = handle.read().strip().partition("gitdir:")[2].strip()
+            gitdir = os.path.join(here, gitdir)
+            with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as handle:
+                common = os.path.realpath(os.path.join(gitdir, handle.read().strip()))
+        except OSError:
+            common = None
+        if common and os.path.basename(common) == ".git":
+            roots.append(os.path.dirname(common))
+    return roots
 
 
 def load_config(required):
@@ -932,27 +948,31 @@ def cmd_transition(jira, args):
         try:
             moved += ", comment %s added" % _add_comment(jira, args.key, comment)
         except Failure as failure:
-            # No answer or a 5xx may follow a comment Jira did add; a 429 runs nothing.
-            # The advice keeps the failure's own rule: only a refused comment is fixed and
-            # sent again at once; after 9 wait, after any other failure report it first.
-            rate_limited = failure.status == 429
-            unsure = failure.code == UNREACHABLE or (failure.code == SERVER_ERROR
-                                                     and not rate_limited)
-            check = "check with get, then send the comment with comment if it is not there"
-            if failure.code == UNREACHABLE:
-                advice = "once you are told Jira answers again, " + check
-            elif unsure:
-                advice = check
-            elif failure.code == REFUSED:
-                advice = "fix the text the line names, then send the comment with comment"
-            else:
-                advice = "report it; send the comment with comment once you are told to"
-            raise Failure(failure.code, "%s done, but %s (do not run the transition again; "
-                                        "%s): %s" % (
-                moved, "the comment may not have been added" if unsure
-                else "the comment was not added", advice, failure.message))
+            raise Failure(failure.code, "%s done, but %s" % (
+                moved, _comment_failed(failure, "do not run the transition again")))
     print(moved)
     return OK
+
+
+def _comment_failed(failure, keep):
+    """What a failed comment after a done write means, with the advice of its failure's
+    own rule: only a refused comment is fixed and sent again at once; after 9 wait, after
+    any other failure report it first. `keep`: what not to run again."""
+    # No answer or a 5xx may follow a comment Jira did add; a 429 runs nothing.
+    unsure = failure.code == UNREACHABLE or (failure.code == SERVER_ERROR
+                                             and getattr(failure, "status", None) != 429)
+    check = "check with get, then send the comment with comment if it is not there"
+    if failure.code == UNREACHABLE:
+        advice = "once you are told Jira answers again, " + check
+    elif unsure:
+        advice = check
+    elif failure.code == REFUSED:
+        advice = "fix the text the line names, then send the comment with comment"
+    else:
+        advice = "report it; send the comment with comment once you are told to"
+    return "%s (%s; %s): %s" % ("the comment may not have been added" if unsure
+                                else "the comment was not added", keep, advice,
+                                failure.message)
 
 
 def _comment_id(jira, key, text):
@@ -1105,11 +1125,15 @@ def cmd_field(jira, args):
     if not known:
         raise Failure(CONFIG, "this Jira has no field %s of %s" % (field, where))
     schema = known[0].get("schema") or {}
-    if schema.get("type") != "string" or schema.get("custom", TEXT_FIELD) != TEXT_FIELD:
-        kind = (schema.get("custom") or "").rpartition(":")[2] or schema.get("type") or "?"
-        raise Failure(REFUSED, "field %s ('%s') of %s is of type %s, not a single-line "
-                               "text field" % (field, known[0].get("name") or "?", where,
-                                               kind))
+    # Only a custom single-line text field: a system field (description, summary) would
+    # be rewritten without the mark and outside edit's rule.
+    if schema.get("custom") != TEXT_FIELD:
+        kind = ((schema.get("custom") or "").rpartition(":")[2]
+                or "system field %s" % (schema.get("system") or schema.get("type") or "?"))
+        raise Failure(CONFIG, "field %s ('%s') of %s is of type %s, not a custom "
+                              "single-line text field (textfield): report it, the user "
+                              "fixes the file" % (field, known[0].get("name") or "?",
+                                                  where, kind))
     issue = jira.call("GET", "issue/" + urllib.parse.quote(args.key), {"fields": field},
                       missing=missing_issue(args.key)) or {}
     key = issue.get("key") or args.key
@@ -1315,9 +1339,8 @@ def cmd_attach(jira, args):
         try:
             comment_id = _add_comment(jira, args.key, comment)
         except Failure as failure:
-            raise Failure(failure.code, "%s: uploaded %s, but the comment was not added "
-                                        "(do not attach again; send it with comment): %s"
-                          % (args.key, ", ".join(done), failure.message))
+            raise Failure(failure.code, "%s: uploaded %s, but %s" % (
+                args.key, ", ".join(done), _comment_failed(failure, "do not attach again")))
         print("%s: comment %s added" % (args.key, comment_id))
     return OK
 
@@ -1343,13 +1366,12 @@ def cmd_download(jira, args):
         if not os.path.isdir(folder) or not os.access(folder, os.W_OK | os.X_OK):
             raise Failure(USAGE, "--to %s is not a folder you can write to" % args.to)
         # A downloaded file is data from the tracker: never among the repository's files.
-        repository = find_repository(os.getcwd())
         real = os.path.realpath(folder)
-        if repository and (real == repository
-                           or real.startswith(repository.rstrip(os.sep) + os.sep)):
-            raise Failure(USAGE, "--to %s is inside the repository %s: give a folder "
-                                 "outside it, or no --to for a new temporary folder"
-                          % (args.to, repository))
+        for repository in find_repository(os.getcwd()):
+            if real == repository or real.startswith(repository.rstrip(os.sep) + os.sep):
+                raise Failure(USAGE, "--to %s is inside the repository %s: give a folder "
+                                     "outside it, or no --to for a new temporary folder"
+                              % (args.to, repository))
     files = _files(jira, args.key)
     chosen = []
     for wanted in args.names:
@@ -1384,8 +1406,11 @@ def cmd_download(jira, args):
                 failure = Failure(REFUSED, "Jira answered file %s with a redirect (%d), not "
                                            "followed: the credentials go only to JIRA_URL; "
                                            "report it" % (item.get("filename"), status))
-            message = getattr(failure, "message", None) or "cannot write: %s" % failure
-            raise Failure(getattr(failure, "code", USAGE),
+            # A file this machine cannot write (disk full, folder gone): nothing to fix in
+            # the command, so exit 1, which the agent reports.
+            message = getattr(failure, "message", None) or "cannot write: %s; report it" % (
+                failure)
+            raise Failure(getattr(failure, "code", CRASH),
                           "%s: downloaded %s; not downloaded %s: %s" % (
                               args.key, ", ".join(done) or "none",
                               ", ".join(f.get("filename") or "?" for f in chosen[number:]),
