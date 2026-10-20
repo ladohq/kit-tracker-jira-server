@@ -174,8 +174,9 @@ project.
   task's value (`field`) read from the issue's field and written by `PUT
   /rest/api/2/issue/{key}` with `{"fields": {"<id>": "<value>"}}` (`null` clears), the
   field's type checked first in `/rest/api/2/field`: usable only a custom single-line
-  text field (`schema.custom` ending `:textfield`; a system field, a multi-line or an
-  option field is not); TLS verified through the system store or
+  text field (`schema.custom` exactly
+  `com.atlassian.jira.plugin.system.customfieldtypes:textfield`; a system field, a
+  multi-line, an option or a plugin's field is not); TLS verified through the system store or
   `SSL_CERT_FILE`, never disabled. Text goes to Jira as wiki markup (R12).
   *Source:* brief, section "Jira Server / Data Center 8.13".
 - **R8** Each failure is one plain line saying what happened and what to do, with an exit
