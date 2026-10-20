@@ -225,9 +225,11 @@ project.
   `kit-reports/tracker-jira-server-1.2.0-2026-10-09.md` (d6590ef), F3.1, F3.2, F5.1;
   same report (cf31728), F3.3, F3.4, F5.5; same report (6efeefc), F6.1. `edit` uses the
   same codes: a field not on the task's edit screen or a refused value is Jira refusing
-  the request (exit 11). `field` too (1.6.0): a field of another type than single-line
-  text is exit 11 with the type named, a field not on the task's edit screen or a value
-  Jira refuses exit 11 with Jira's message.
+  the request (exit 11). `field` too (1.6.0): a field in `fields` that is not a custom
+  single-line text field (`customfield_*` of type textfield; a system field such as
+  `description` included) is a settings error, exit 3 with the type named, as in
+  tracker-yougile; a field not on the task's edit screen or a value Jira refuses exit 11
+  with Jira's message (release gate of report 66d8918, F12.1, F3.1).
 - **R9** What agents write in Jira in the user's name is marked by the script: every
   comment, every created task's description and every description `edit` writes starts
   with `[LADO: <agent>]` (an edited description's earlier `\[LADO: …\]` mark is replaced
