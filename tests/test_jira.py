@@ -35,10 +35,11 @@ issue_types:
 statuses:
   review: Code Review
   done: Done
-labels: [lado, "agent made"]
+labels: [agent-made, triaged]
 fields:
   epic_link: customfield_10100
   epic_name: 'customfield_10101'
+  release: customfield_10200
 """
 
 
@@ -175,7 +176,7 @@ class ConfigTest(unittest.TestCase):
         config = self.parse(CONFIG)
         self.assertEqual(config["project"], "TEST")
         self.assertEqual(config["issue_types"], {"bug": "Bug", "epic": "Epic"})
-        self.assertEqual(config["labels"], ["lado", "agent made"])
+        self.assertEqual(config["labels"], ["agent-made", "triaged"])
         self.assertEqual(config["fields"]["epic_name"], "customfield_10101")
 
     def test_localized_names(self):
@@ -216,13 +217,18 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "line 2: unknown key 'statuss'"):
             self.parse("project: A\nstatuss:\n  done: Done\n")
         with self.assertRaisesRegex(ValueError, "line 3: 'labels' must be a list"):
-            self.parse("project: A\n\nlabels: lado\n")
+            self.parse("project: A\n\nlabels: agent-made\n")
         with self.assertRaisesRegex(ValueError, "line 2: 'statuses' must be a map"):
             self.parse("project: A\nstatuses: Done\n")
         with self.assertRaisesRegex(ValueError, "line 4: 'statuses.done' must be one plain"):
             self.parse("project: A\nstatuses:\n  review: Review\n  done: [x]\n")
         with self.assertRaisesRegex(ValueError, "tracker.yaml: 'project'.* is required"):
             self.parse("labels: [a]\n")
+
+    def test_label_with_a_space_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "line 3: 'labels': label 'agent made' has "
+                                                "a space"):
+            self.parse('project: A\n\nlabels: [ok, "agent made"]\n')
 
     def test_found_upward_but_not_above_the_repository(self):
         top = tempfile.mkdtemp()
@@ -389,7 +395,7 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(fields["issuetype"], {"id": "1"})
         self.assertEqual(fields["project"], {"key": "TEST"})
         self.assertEqual(fields["description"], "\\[LADO: developer\\]\n\nh2. Steps\n# run")
-        self.assertEqual(fields["labels"], ["lado", "agent made"])
+        self.assertEqual(fields["labels"], ["agent-made", "triaged"])
         self.assertEqual(fields["customfield_10100"], "TEST-9")
 
     def test_create_wiki_description_is_not_converted(self):
@@ -718,13 +724,13 @@ class CommandsTest(JiraTestCase):
         self.jira.route("PUT", "issue/TEST-1", None, status=204)
 
     def test_label_add_and_remove(self):
-        self.route_labels(["lado", "old"], ["lado", "waiting_for_release"])
-        code, out, err = self.run_jira("label", "TEST-1", "--add", "waiting_for_release",
-                                       "lado", "--remove", "old", "absent")
+        self.route_labels(["agent-made", "old"], ["agent-made", "needs_review"])
+        code, out, err = self.run_jira("label", "TEST-1", "--add", "needs_review",
+                                       "agent-made", "--remove", "old", "absent")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, "TEST-1: labels lado, waiting_for_release\n")
+        self.assertEqual(out, "TEST-1: labels agent-made, needs_review\n")
         self.assertEqual(self.sent("PUT", "issue/TEST-1")[0]["body"], {"update": {
-            "labels": [{"add": "waiting_for_release"}, {"remove": "old"}]}})
+            "labels": [{"add": "needs_review"}, {"remove": "old"}]}})
 
     def test_label_remove_the_last(self):
         self.route_labels(["old"], [])
@@ -733,14 +739,15 @@ class CommandsTest(JiraTestCase):
         self.assertEqual(out, "TEST-1: labels none\n")
 
     def test_label_already_so_changes_nothing(self):
-        self.route_labels(["lado"])
-        code, out, err = self.run_jira("label", "TEST-1", "--add", "lado", "--remove", "x")
+        self.route_labels(["agent-made"])
+        code, out, err = self.run_jira("label", "TEST-1", "--add", "agent-made", "--remove",
+                                       "x")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, "TEST-1: labels lado, nothing changed\n")
+        self.assertEqual(out, "TEST-1: labels agent-made, nothing changed\n")
         self.assertEqual(self.sent("PUT", "issue/TEST-1"), [])
 
     def test_label_with_a_space_or_none_is_refused_before_any_request(self):
-        for argv in (["--add", "waiting for release"], ["--remove", "a b"], []):
+        for argv in (["--add", "needs review"], ["--remove", "a b"], []):
             code, _, err = self.run_jira("label", "TEST-1", *argv)
             self.assertEqual(code, jira.USAGE, err)
         self.assertEqual(self.jira.requests, [])
@@ -942,6 +949,135 @@ def jira_file(number, name, created="2026-10-13T10:00:00.000+0000", size=12345, 
     return {"id": str(number), "filename": name, "size": size, "created": created,
             "author": {"name": "ann", "displayName": "Ann"},
             "content": url or "/secure/attachment/%d/%s" % (number, name)}
+
+
+TEXT = "com.atlassian.jira.plugin.system.customfieldtypes:"
+JIRA_FIELDS = [
+    {"id": "summary", "name": "Summary", "schema": {"type": "string", "system": "summary"}},
+    {"id": "customfield_10200", "name": "Release",
+     "schema": {"type": "string", "custom": TEXT + "textfield"}},
+    {"id": "customfield_10201", "name": "Notes",
+     "schema": {"type": "string", "custom": TEXT + "textarea"}},
+    {"id": "customfield_10202", "name": "Due", "schema": {"type": "date",
+                                                         "custom": TEXT + "datepicker"}}]
+
+
+class FieldTest(JiraTestCase):
+    def route_field(self, *values):
+        """GET of the task answers each value of the field in turn; PUT answers 204."""
+        self.jira.route("GET", "field", JIRA_FIELDS)
+        self.jira.route("GET", "issue/TEST-1", Seq(*[
+            {"key": "TEST-1", "fields": {"customfield_10200": value}} for value in values]))
+        self.jira.route("PUT", "issue/TEST-1", None, status=204)
+
+    def puts(self):
+        return [r["body"] for r in self.sent("PUT", "issue/TEST-1")]
+
+    def test_read(self):
+        for value, shown in (("0.42.0", "TEST-1: release = 0.42.0\n"),
+                             (None, "TEST-1: release not set\n")):
+            self.route_field(value)
+            code, out, err = self.run_jira("field", "TEST-1", "release")
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out, shown)
+        self.assertEqual(self.sent("GET", "issue/TEST-1")[0]["query"],
+                         {"fields": "customfield_10200"})
+        self.assertEqual(self.puts(), [])
+
+    def test_write_and_replace(self):
+        for old, shown in ((None, "not set"), ("0.41.0", "0.41.0")):
+            self.jira.requests.clear()
+            self.route_field(old)
+            code, out, err = self.run_jira("field", "TEST-1", "release", "0.42.0")
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out, "TEST-1: release %s -> 0.42.0\n" % shown)
+            self.assertEqual(self.puts(), [{"fields": {"customfield_10200": "0.42.0"}}])
+
+    def test_clear(self):
+        self.route_field("0.42.0")
+        code, out, err = self.run_jira("field", "TEST-1", "release", "--clear")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "TEST-1: release 0.42.0 -> not set\n")
+        self.assertEqual(self.puts(), [{"fields": {"customfield_10200": None}}])
+
+    def test_already_so_changes_nothing(self):
+        for value, argv, shown in (("0.42.0", ["0.42.0"], "= 0.42.0"),
+                                   (None, ["--clear"], "not set"),
+                                   ("", ["--clear"], "not set")):
+            self.route_field(value)
+            code, out, err = self.run_jira("field", "TEST-1", "release", *argv)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(out, "TEST-1: release %s, nothing changed\n" % shown)
+        self.assertEqual(self.puts(), [])
+
+    def test_bad_values_are_refused_before_any_request(self):
+        for argv in (["0.42.0", "--clear"], [""], ["  "], ["a\nb"], ["a\rb"], ["-"]):
+            with self.subTest(argv=argv):
+                code, _, err = self.run_jira("field", "TEST-1", "release", *argv)
+                self.assertEqual(code, jira.USAGE, err)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_unknown_and_epic_names_are_refused(self):
+        for name, message in (("version", "'version' is not a name of 'fields'"),
+                              ("epic_link", "not usable by field"),
+                              ("epic_name", "not usable by field")):
+            with self.subTest(name=name):
+                code, _, err = self.run_jira("field", "TEST-1", name, "1")
+                self.assertEqual(code, jira.CONFIG, err)
+                self.assertIn(message, err)
+                self.assertIn("usable names", err)
+                self.assertIn("release", err)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_field_this_jira_lacks(self):
+        self.write_config(CONFIG.replace("customfield_10200", "customfield_99999"))
+        self.route_field(None)
+        code, _, err = self.run_jira("field", "TEST-1", "release", "1")
+        self.assertEqual(code, jira.CONFIG, err)
+        self.assertIn("no field customfield_99999", err)
+        self.assertEqual(self.puts(), [])
+
+    def test_field_not_single_line_text_is_refused(self):
+        for field, kind in (("customfield_10201", "textarea"),
+                            ("customfield_10202", "datepicker")):
+            with self.subTest(field=field):
+                self.write_config(CONFIG.replace("customfield_10200", field))
+                self.route_field(None)
+                code, _, err = self.run_jira("field", "TEST-1", "release", "1")
+                self.assertEqual(code, jira.REFUSED, err)
+                self.assertIn("of type %s, not a single-line text field" % kind, err)
+        self.assertEqual(self.puts(), [])
+
+    def test_refused_by_jira(self):
+        self.route_field(None)
+        self.jira.route("PUT", "issue/TEST-1", {"errorMessages": [], "errors": {
+            "customfield_10200": "Field 'customfield_10200' cannot be set. It is not on "
+                                 "the appropriate screen, or unknown."}}, status=400)
+        code, _, err = self.run_jira("field", "TEST-1", "release", "0.42.0")
+        self.assertEqual(code, jira.REFUSED, err)
+        self.assertIn("not on the appropriate screen", err)
+
+    def route_get(self, **fields):
+        self.jira.route("GET", "issue/TEST-1", {"key": "TEST-1", "fields": dict(
+            summary="S", status={"name": "Open"}, **fields)})
+
+    def test_get_shows_fields(self):
+        self.route_get(customfield_10200="0.42.0")
+        code, out, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("\nFields: release = 0.42.0\n", out)
+        self.assertIn("customfield_10200",
+                      self.sent("GET", "issue/TEST-1")[0]["query"]["fields"].split(","))
+        self.route_get(customfield_10200=None)
+        code, out, err = self.run_jira("get", "TEST-1")
+        self.assertIn("\nFields: none\n", out)
+
+    def test_get_without_usable_names_has_no_fields_line(self):
+        self.write_config(CONFIG.replace("  release: customfield_10200\n", ""))
+        self.route_get(customfield_10200="0.42.0")
+        code, out, err = self.run_jira("get", "TEST-1")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Fields:", out)
 
 
 class FilesTest(JiraTestCase):
@@ -1205,6 +1341,15 @@ class FilesTest(JiraTestCase):
         code, _, err = self.run_jira("download", "TEST-1", "a", "--to",
                                      os.path.join(self.local, "nope"))
         self.assertEqual(code, jira.USAGE, err)
+        self.assertEqual(self.jira.requests, [])
+
+    def test_download_into_the_repository_is_refused(self):
+        os.mkdir(os.path.join(self.repo, "in"))
+        for folder in (self.repo, os.path.join(self.repo, "in"), "in", "."):
+            with self.subTest(folder=folder):
+                code, _, err = self.run_jira("download", "TEST-1", "a", "--to", folder)
+                self.assertEqual(code, jira.USAGE, err)
+                self.assertIn("inside the repository", err)
         self.assertEqual(self.jira.requests, [])
 
     def test_download_partial_failure(self):
@@ -1534,7 +1679,7 @@ class ErrorsTest(JiraTestCase):
         self.assertNotIn("may have been applied", err)
 
     def test_invalid_config(self):
-        self.write_config("project: TEST\nlabels:\n  - lado\n")
+        self.write_config("project: TEST\nlabels:\n  - agent-made\n")
         err = self.assertFails(jira.CONFIG, "line 3: block lists",
                                "create", "--type", "Bug", "--summary", "x")
         self.assertIn("tracker.yaml", err)

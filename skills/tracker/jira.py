@@ -5,8 +5,8 @@
 # ///
 """Jira Server / Data Center 8.4 or newer from the command line: REST API v2, Basic auth.
 
-Commands: get, search, create, edit, transition, comment, assign, label, link, attach,
-download, whoami (run with --help). Credentials come from JIRA_URL, JIRA_USER and
+Commands: get, search, create, edit, transition, comment, assign, label, field, link,
+attach, download, whoami (run with --help). Credentials come from JIRA_URL, JIRA_USER and
 JIRA_PASSWORD; the password and JIRA_URL are never printed, the login only as an account
 Jira shows anyway: an assignee, or whoami's answer.
 Text sent to Jira is Markdown, converted to Jira wiki markup (--wiki sends it as it is).
@@ -58,6 +58,9 @@ CONFIG_PATH = os.path.join(".lado", "tracker.yaml")
 CONFIG_MAPS = ("issue_types", "statuses", "fields", "link_types")
 CONFIG_LISTS = ("labels",)
 CONFIG_KEYS = ("project",) + CONFIG_MAPS + CONFIG_LISTS
+# Names of `fields` that create's --epic and --epic-name use; the field command does not.
+EPIC_FIELDS = ("epic_link", "epic_name")
+TEXT_FIELD = "com.atlassian.jira.plugin.system.customfieldtypes:textfield"
 GET_FIELDS = ["summary", "status", "issuetype", "priority", "assignee", "reporter",
               "labels", "created", "updated", "parent", "description", "comment",
               "issuelinks", "attachment"]
@@ -196,6 +199,11 @@ def _validate(data, path, lines):
         if isinstance(value, dict):
             raise ValueError(where(key) + "'%s' must be a list, e.g. [a, b], not a map"
                              % key)
+        for item in value:
+            # Jira takes no whitespace in a label, so create would fail on every task.
+            if re.search(r"\s", item):
+                raise ValueError(where(key) + "'%s': label '%s' has a space; a label is "
+                                 "one word, e.g. needs_review" % (key, item))
     return data
 
 
@@ -208,6 +216,18 @@ def find_config(start):
             return candidate
         if os.path.exists(os.path.join(here, ".git")):
             return None
+        parent = os.path.dirname(here)
+        if parent == here:
+            return None
+        here = parent
+
+
+def find_repository(start):
+    """The real path of the repository holding start (a folder with .git), or None."""
+    here = os.path.realpath(start)
+    while True:
+        if os.path.exists(os.path.join(here, ".git")):
+            return here
         parent = os.path.dirname(here)
         if parent == here:
             return None
@@ -229,6 +249,12 @@ def load_config(required):
         raise Failure(CONFIG, "%s cannot be read: %s" % (path, error))
     except ValueError as error:
         raise Failure(CONFIG, str(error))
+
+
+def named_fields(config):
+    """The (name, field id) pairs of `fields` the field command uses, in their order."""
+    return [(name, value) for name, value in ((config or {}).get("fields") or {}).items()
+            if name not in EPIC_FIELDS]
 
 
 def setting(config, section, name, why):
@@ -623,24 +649,26 @@ def _person(user):
 
 
 def _read_issue(jira, key):
-    """The task with the fields get shows, and the Epic Link field id or None."""
+    """The task with the fields get shows, and what of the settings shows it: the Epic
+    Link field id or None, and the named fields (name, id) of `fields`."""
     config = load_config(required=False)
     names = list(GET_FIELDS)
     epic = (config or {}).get("fields", {}).get("epic_link")
-    if epic:
-        names.append(epic)
+    named = named_fields(config)
+    names += ([epic] if epic else []) + [field for _, field in named]
     issue = jira.call("GET", "issue/" + urllib.parse.quote(key),
                       {"fields": ",".join(names)}, missing=missing_issue(key))
-    return issue or {}, epic
+    return issue or {}, (epic, named)
 
 
 def cmd_get(jira, args):
-    issue, epic = _read_issue(jira, args.key)
-    _print_issue(issue, epic, args.comments)
+    issue, view = _read_issue(jira, args.key)
+    _print_issue(issue, view, args.comments)
     return OK
 
 
-def _print_issue(issue, epic, count):
+def _print_issue(issue, view, count):
+    epic, named = view
     fields = issue.get("fields") or {}
     print("%s  %s" % (issue.get("key"), fields.get("summary")))
     print("Type: %s   Status: %s   Priority: %s" % (
@@ -657,6 +685,10 @@ def _print_issue(issue, epic, count):
     links = [_link_phrase(link) for link in fields.get("issuelinks") or []]
     if links:
         print("Links: " + "; ".join(links))
+    if named:
+        values = ["%s = %s" % (name, fields[field]) for name, field in named
+                  if fields.get(field) not in (None, "")]
+        print("Fields: " + (", ".join(values) or "none"))
     print("Created: %s   Updated: %s" % (fields.get("created"), fields.get("updated")))
     print("\nDescription:\n%s" % (fields.get("description") or "(empty)"))
     files = fields.get("attachment") or []
@@ -796,7 +828,7 @@ def cmd_edit(jira, args):
         wanted["summary"] = args.summary
     if args.description is not None:
         wanted["description"] = remark(text_arg(args.description, args.wiki, names))
-    issue, epic = _read_issue(jira, args.key)
+    issue, view = _read_issue(jira, args.key)
     current = issue.get("fields") or {}
     _check_files(args.key, names, current.get("attachment"))
     # A field already so is not sent, so an edit run twice changes nothing the second time.
@@ -804,18 +836,18 @@ def cmd_edit(jira, args):
               if not _same(current.get(name), value)}
     if not fields:
         print("%s: %s already so, nothing changed\n" % (args.key, " and ".join(wanted)))
-        _print_issue(issue, epic, 0)
+        _print_issue(issue, view, 0)
         return OK
     jira.call("PUT", "issue/" + urllib.parse.quote(args.key), body={"fields": fields},
               missing=missing_issue(args.key), sent=None)
     try:
-        issue, epic = _read_issue(jira, args.key)
+        issue, view = _read_issue(jira, args.key)
     except Failure as failure:
         raise Failure(failure.code, "%s: %s changed, but reading the task back failed (do "
                                     "not run it again): %s"
                       % (args.key, " and ".join(fields), failure.message))
     print("%s: %s changed\n" % (args.key, " and ".join(fields)))
-    _print_issue(issue, epic, 0)
+    _print_issue(issue, view, 0)
     return OK
 
 
@@ -1020,7 +1052,7 @@ def cmd_label(jira, args):
         # Jira takes no whitespace in a label: refused here, before any request.
         if not label or re.search(r"\s", label):
             raise Failure(USAGE, "label '%s': a label has no spaces; write it as one word, "
-                                 "e.g. waiting_for_release" % label)
+                                 "e.g. needs_review" % label)
     before = _labels(jira, args.key)
     changes = ([{"add": label} for label in add if label not in before]
                + [{"remove": label} for label in remove if label in before])
@@ -1036,6 +1068,65 @@ def cmd_label(jira, args):
         raise Failure(failure.code, "%s: labels changed, but reading them back failed (do "
                                     "not run it again): %s" % (args.key, failure.message))
     print("%s: labels %s" % (args.key, ", ".join(after) or "none"))
+    return OK
+
+
+def _field_id(config, name):
+    usable = ", ".join(n for n, _ in named_fields(config)) or "none"
+    if name in EPIC_FIELDS:
+        raise Failure(CONFIG, "'fields.%s' is create's epic field, not usable by field; "
+                              "usable names of 'fields' in %s: %s"
+                      % (name, CONFIG_PATH, usable))
+    field = dict(named_fields(config)).get(name)
+    if not field:
+        raise Failure(CONFIG, "'%s' is not a name of 'fields' in %s; usable names: %s"
+                      % (name, CONFIG_PATH, usable))
+    return field
+
+
+def cmd_field(jira, args):
+    value = args.value
+    if value is not None and args.clear:
+        raise Failure(USAGE, "give a value or --clear, not both")
+    if value is not None:
+        if not value.strip():
+            raise Failure(USAGE, "the value is empty; to take it off the task, use --clear")
+        if "\n" in value or "\r" in value:
+            raise Failure(USAGE, "the value has a line break; a field holds one line")
+        if value == "-":
+            # tracker-yougile clears a field on '-': refused in both, so a process kit's
+            # command means the same on either tracker.
+            raise Failure(USAGE, "the value '-' is not taken; to take the value off the "
+                                 "task, use --clear")
+    config = load_config(required=True)
+    field = _field_id(config, args.name)
+    where = "'fields.%s: %s' in %s" % (args.name, field, CONFIG_PATH)
+    known = [f for f in jira.call("GET", "field") or [] if f.get("id") == field]
+    if not known:
+        raise Failure(CONFIG, "this Jira has no field %s of %s" % (field, where))
+    schema = known[0].get("schema") or {}
+    if schema.get("type") != "string" or schema.get("custom", TEXT_FIELD) != TEXT_FIELD:
+        kind = (schema.get("custom") or "").rpartition(":")[2] or schema.get("type") or "?"
+        raise Failure(REFUSED, "field %s ('%s') of %s is of type %s, not a single-line "
+                               "text field" % (field, known[0].get("name") or "?", where,
+                                               kind))
+    issue = jira.call("GET", "issue/" + urllib.parse.quote(args.key), {"fields": field},
+                      missing=missing_issue(args.key)) or {}
+    key = issue.get("key") or args.key
+    old = (issue.get("fields") or {}).get(field)
+    old = old if old not in (None, "") else None
+    shown = "= %s" % old if old is not None else "not set"
+    if value is None and not args.clear:
+        print("%s: %s %s" % (key, args.name, shown))
+        return OK
+    if value == old or (args.clear and old is None):
+        print("%s: %s %s, nothing changed" % (key, args.name, shown))
+        return OK
+    jira.call("PUT", "issue/" + urllib.parse.quote(key),
+              body={"fields": {field: None if args.clear else value}},
+              missing=missing_issue(key), sent=None)
+    print("%s: %s %s -> %s" % (key, args.name, old if old is not None else "not set",
+                               "not set" if args.clear else value))
     return OK
 
 
@@ -1251,6 +1342,14 @@ def cmd_download(jira, args):
         folder = os.path.abspath(args.to)
         if not os.path.isdir(folder) or not os.access(folder, os.W_OK | os.X_OK):
             raise Failure(USAGE, "--to %s is not a folder you can write to" % args.to)
+        # A downloaded file is data from the tracker: never among the repository's files.
+        repository = find_repository(os.getcwd())
+        real = os.path.realpath(folder)
+        if repository and (real == repository
+                           or real.startswith(repository.rstrip(os.sep) + os.sep)):
+            raise Failure(USAGE, "--to %s is inside the repository %s: give a folder "
+                                 "outside it, or no --to for a new temporary folder"
+                          % (args.to, repository))
     files = _files(jira, args.key)
     chosen = []
     for wanted in args.names:
@@ -1369,6 +1468,15 @@ def parser():
     p.add_argument("--add", action="append", nargs="+", metavar="LABEL")
     p.add_argument("--remove", action="append", nargs="+", metavar="LABEL")
     p.set_defaults(run=cmd_label)
+
+    p = sub.add_parser("field", help="read, write or clear a task's single-line text "
+                                     "field, by a name of fields")
+    p.add_argument("key")
+    p.add_argument("name", help="a name of fields in the settings (not epic_link, "
+                                "epic_name)")
+    p.add_argument("value", nargs="?", help="the new value, one line (none: print it)")
+    p.add_argument("--clear", action="store_true", help="take the value off the task")
+    p.set_defaults(run=cmd_field)
 
     p = sub.add_parser("link", help="link a branch, commit or pull request URL, or another "
                                     "task, to a task")

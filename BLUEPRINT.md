@@ -358,8 +358,8 @@ Reverse check:
 
 ## 4. Complexity budget
 
-Output of the kit-budget script on the kit (1.5.0, report 85d77cb; 1.6.0 adds no role,
-flow, skill or MCP server, so the values hold):
+Output of the kit-budget script on the kit (1.6.0, build of run
+`improve/tracker-jira-server`):
 
 | Measure | Where | Value | Green / yellow up to | Zone |
 |---|---|---|---|---|

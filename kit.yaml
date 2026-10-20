@@ -1,8 +1,9 @@
 name: tracker-jira-server
-version: 1.5.0
+version: 1.6.0
 description: >-
   The tracker skill for Jira Server / Data Center 8.4 or newer: find, read, create, edit
-  (summary and description), move, comment on, assign and label tasks, link a branch,
+  (summary and description), move, comment on, assign and label tasks, read and set a
+  task's text field (e.g. its release), link a branch,
   commit or another task to tasks, attach files to tasks and download them, and say
   which account it works as, through REST API v2, with a
   standard-library Python script run by uv. No agents: add it to a session next to a

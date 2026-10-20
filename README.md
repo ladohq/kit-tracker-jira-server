@@ -2,7 +2,8 @@
 
 A LADO kit for Jira Server and Data Center 8.4 or newer. It gives the roles of any process kit a
 skill named `tracker` that finds, reads, creates, edits (summary and description), moves,
-comments on, assigns and labels tasks, links a branch, a commit or another task to them,
+comments on, assigns and labels tasks, reads and sets a task's text field (`field`, e.g. its
+release), links a branch, a commit or another task to them,
 attaches files to tasks and downloads their files, and says which account it works as, through Jira's REST API v2 and a script on Python's
 standard library, run by `uv` (no MCP server). Jira Cloud is not supported.
 
@@ -73,6 +74,11 @@ The other sections (issue types, labels, custom field ids such as Epic Link, whi
 format, a strict subset of YAML, are in
 [`skills/tracker/SKILL.md`](skills/tracker/SKILL.md).
 
+For the skill's `field` action (a named value of a task, e.g. its release), a Jira
+administrator creates a single-line text custom field (e.g. "Release") once and adds it
+to the project's screens; its id goes under a name of your choice in `fields`, e.g.
+`release: customfield_10200`. Labels and these names are the project's own words.
+
 ## What agents write
 
 Agents write descriptions and comments in Markdown; the script converts it to Jira's
@@ -83,9 +89,10 @@ that wrote it. Run by hand (no `LADO_AGENT` in the environment), the
 script adds no mark. A task's files are linked in that Markdown as
 `[text](attachment:<name>)` or shown as `![](attachment:<name>)`; for a new task the
 agent creates it, attaches the files, then edits the description with the links. Files
-are downloaded into a temporary folder outside the repository, and the credentials go
+are downloaded by default into a temporary folder, or into a `--to` folder outside the
+repository, never inside it, and the credentials go
 only to `JIRA_URL`'s own address. By default agents only read; they create, transition, comment, assign,
-label, link or attach files when their role, their step or the human asks, and edit a task's summary or
+label, set a field, link or attach files when their role, their step or the human asks, and edit a task's summary or
 description only when the human or their step asks (`skills/tracker/SKILL.md`). A process
 kit says which roles touch the tracker and when, and may allow more.
 
